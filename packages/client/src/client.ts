@@ -288,35 +288,53 @@ async function main() {
     clients.set(ws, { sessionId, did: session.did })
     startPolling()
 
-    ws.on('message', async (data) => {
-      try {
-        const msg = JSON.parse(data.toString())
+    // Batch input writes: collect key states, write 1 record per second max
+    const playerAgent = session.agent
+    const playerDid = session.did
+    let pendingKeys: number[] = []
+    let inputSeq = 0
+    let writeTimer: ReturnType<typeof setInterval> | null = null
 
-        if (msg.type === 'key') {
-          // Write input record to player's PDS
-          const now = new Date().toISOString()
-          await session.agent.com.atproto.repo.createRecord({
-            repo: session.did,
-            collection: LEXICON_IDS.DoomInput,
-            record: {
-              $type: LEXICON_IDS.DoomInput,
-              session: {
-                uri: `at://${config.SERVER_DID}/${LEXICON_IDS.DoomSession}/current`,
-                cid: 'placeholder',
-              },
-              seq: msg.seq ?? 0,
-              keys: [msg.keys ?? 0],
-              createdAt: now,
+    async function flushInputs() {
+      if (pendingKeys.length === 0) return
+      const keys = pendingKeys.slice()
+      pendingKeys = []
+      const seq = inputSeq
+      inputSeq += keys.length
+
+      try {
+        await playerAgent.com.atproto.repo.createRecord({
+          repo: playerDid,
+          collection: LEXICON_IDS.DoomInput,
+          record: {
+            $type: LEXICON_IDS.DoomInput,
+            session: {
+              uri: `at://${config.SERVER_DID}/${LEXICON_IDS.DoomSession}/current`,
+              cid: 'placeholder',
             },
-          })
-        }
+            seq,
+            keys,
+            createdAt: new Date().toISOString(),
+          },
+        })
       } catch (err) {
-        console.error('Failed to write input record:', err)
+        console.error('Failed to write input record:', err instanceof Error ? err.message : err)
+      }
+    }
+
+    // Flush batched inputs every 500ms (2 writes/sec max)
+    writeTimer = setInterval(flushInputs, 500)
+
+    ws.on('message', (data) => {
+      const msg = JSON.parse(data.toString())
+      if (msg.type === 'key') {
+        pendingKeys.push(msg.keys ?? 0)
       }
     })
 
     ws.on('close', () => {
       console.log(`WebSocket disconnected: ${session.did}`)
+      if (writeTimer) clearInterval(writeTimer)
       clients.delete(ws)
       stopPolling()
     })
