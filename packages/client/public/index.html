@@ -110,7 +110,7 @@
     <div id="login-status"></div>
   </div>
 
-  <div id="player-info">Playing as <span id="player-handle"></span></div>
+  <div id="player-info">Playing as <span id="player-handle"></span> | <span id="session-timer" style="color: #9ca3af;"></span></div>
   <canvas id="game" width="320" height="200"></canvas>
   <div id="stats">
     FPS: <span id="fps">0</span> |
@@ -283,6 +283,27 @@
       // Send periodic key state updates even when no keys change
       // (so the server knows to keep ticking)
       sendTimer = setInterval(sendKeys, 100)
+
+      // Session timer + rate limit warning
+      const sessionStart = Date.now()
+      const WARN_MINUTES = 25
+      const MAX_MINUTES = 30
+      const timerEl = document.getElementById('session-timer')
+      setInterval(() => {
+        const elapsed = Math.floor((Date.now() - sessionStart) / 1000)
+        const mins = Math.floor(elapsed / 60)
+        const secs = elapsed % 60
+        timerEl.textContent = mins + ':' + String(secs).padStart(2, '0')
+
+        if (mins >= MAX_MINUTES) {
+          timerEl.style.color = '#ef4444'
+          timerEl.textContent += ' -- session limit reached, please refresh to free up resources'
+          if (sendTimer) { clearInterval(sendTimer); sendTimer = null }
+        } else if (mins >= WARN_MINUTES) {
+          timerEl.style.color = '#f59e0b'
+          timerEl.textContent += ' -- approaching session limit'
+        }
+      }, 1000)
     }
   </script>
 </body>
