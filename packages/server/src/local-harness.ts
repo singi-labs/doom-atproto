@@ -76,7 +76,8 @@ async function main() {
   const injectedHtml = clientHtml.replace(
     '</script>',
     `
-    const ws = new WebSocket('ws://' + location.host + '/ws')
+    const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const ws = new WebSocket(wsProto + '//' + location.host + '/ws')
     ws.binaryType = 'arraybuffer'
 
     ws.onopen = () => {
