@@ -22,33 +22,261 @@
       image-rendering: pixelated;
       width: 640px;
       height: 400px;
+      display: none;
     }
     #stats {
       margin-top: 1rem;
       font-size: 0.8rem;
       color: #666;
+      display: none;
     }
     #stats span { color: #b91c1c; }
+
+    /* Login UI */
+    #login {
+      text-align: center;
+      max-width: 400px;
+    }
+    #login p {
+      color: #999;
+      margin-bottom: 1.5rem;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    #login-form {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    #login-form input {
+      flex: 1;
+      padding: 0.5rem 0.75rem;
+      background: #111;
+      border: 1px solid #333;
+      color: #fff;
+      font-family: inherit;
+      font-size: 0.9rem;
+      border-radius: 4px;
+    }
+    #login-form input::placeholder { color: #555; }
+    #login-form button {
+      padding: 0.5rem 1rem;
+      background: #b91c1c;
+      border: none;
+      color: #fff;
+      font-family: inherit;
+      font-size: 0.9rem;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    #login-form button:hover { background: #991b1b; }
+    #login-form button:disabled { background: #555; cursor: not-allowed; }
+    #login-error {
+      color: #ef4444;
+      font-size: 0.8rem;
+      margin-top: 0.5rem;
+    }
+    #login-status {
+      color: #666;
+      font-size: 0.8rem;
+      margin-top: 0.5rem;
+    }
+
+    /* Player info bar */
+    #player-info {
+      display: none;
+      font-size: 0.8rem;
+      color: #666;
+      margin-bottom: 0.5rem;
+    }
+    #player-info span { color: #4ade80; }
   </style>
 </head>
 <body>
   <h1>DOOM over AT Protocol</h1>
+
+  <div id="login">
+    <p>Every keystroke writes a record to your PDS.<br>
+    Every frame is read from the game server's PDS.<br>
+    Full federation. No shortcuts.</p>
+    <form id="login-form">
+      <input type="text" id="handle" placeholder="your-handle.bsky.social" autocomplete="username" />
+      <button type="submit">Login</button>
+    </form>
+    <div id="login-error"></div>
+    <div id="login-status"></div>
+  </div>
+
+  <div id="player-info">Playing as <span id="player-did"></span></div>
   <canvas id="game" width="320" height="200"></canvas>
   <div id="stats">
     FPS: <span id="fps">0</span> |
     Latency: <span id="latency">--</span>ms |
     Tick: <span id="tick">0</span>
   </div>
+
   <script>
-    // Client-side rendering will connect via WebSocket to the Node.js client process
     const canvas = document.getElementById('game')
     const ctx = canvas.getContext('2d')
-    ctx.fillStyle = '#1a1a1a'
-    ctx.fillRect(0, 0, 320, 200)
-    ctx.fillStyle = '#b91c1c'
-    ctx.font = '16px monospace'
-    ctx.textAlign = 'center'
-    ctx.fillText('Waiting for connection...', 160, 100)
+    const loginDiv = document.getElementById('login')
+    const loginForm = document.getElementById('login-form')
+    const handleInput = document.getElementById('handle')
+    const loginError = document.getElementById('login-error')
+    const loginStatus = document.getElementById('login-status')
+    const playerInfo = document.getElementById('player-info')
+    const statsDiv = document.getElementById('stats')
+
+    // Check if already authenticated
+    fetch('/api/session')
+      .then(r => r.json())
+      .then(data => {
+        if (data.authenticated) {
+          startGame(data.did)
+        }
+      })
+
+    // Check for auth error in URL
+    const params = new URLSearchParams(location.search)
+    if (params.get('error')) {
+      loginError.textContent = 'Authentication failed. Please try again.'
+      history.replaceState({}, '', '/')
+    }
+
+    // Login form
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const handle = handleInput.value.trim()
+      if (!handle) return
+
+      loginError.textContent = ''
+      loginStatus.textContent = 'Redirecting to your PDS...'
+      loginForm.querySelector('button').disabled = true
+
+      try {
+        const res = await fetch('/oauth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ handle }),
+        })
+        const data = await res.json()
+
+        if (data.redirectUrl) {
+          window.location.href = data.redirectUrl
+        } else {
+          loginError.textContent = data.error || 'Login failed'
+          loginStatus.textContent = ''
+          loginForm.querySelector('button').disabled = false
+        }
+      } catch (err) {
+        loginError.textContent = 'Network error. Please try again.'
+        loginStatus.textContent = ''
+        loginForm.querySelector('button').disabled = false
+      }
+    })
+
+    // Key state tracking
+    let currentKeys = 0
+    let inputSeq = 0
+
+    const KEY_BITS = {
+      ArrowUp: 0, ArrowDown: 1, ArrowLeft: 2, ArrowRight: 3,
+      ControlLeft: 4, ControlRight: 4, Space: 5,
+      AltLeft: 6, AltRight: 6, ShiftLeft: 7, ShiftRight: 7,
+      Digit1: 8, Digit2: 9, Digit3: 10, Digit4: 11,
+      Digit5: 12, Digit6: 13, Digit7: 14, Digit8: 15,
+      Escape: 16, Enter: 17, Tab: 18, Pause: 19,
+    }
+
+    function startGame(did) {
+      loginDiv.style.display = 'none'
+      canvas.style.display = 'block'
+      statsDiv.style.display = 'block'
+      playerInfo.style.display = 'block'
+      document.getElementById('player-did').textContent = did
+
+      ctx.fillStyle = '#1a1a1a'
+      ctx.fillRect(0, 0, 320, 200)
+      ctx.fillStyle = '#4ade80'
+      ctx.font = '14px monospace'
+      ctx.textAlign = 'center'
+      ctx.fillText('Connecting...', 160, 100)
+
+      const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+      const ws = new WebSocket(wsProto + '//' + location.host + '/ws')
+      ws.binaryType = 'arraybuffer'
+
+      ws.onopen = () => {
+        ctx.fillStyle = '#1a1a1a'
+        ctx.fillRect(0, 0, 320, 200)
+        ctx.fillStyle = '#4ade80'
+        ctx.fillText('Waiting for frames...', 160, 100)
+      }
+
+      let frameCount = 0
+      let lastFpsTime = performance.now()
+
+      ws.onmessage = (event) => {
+        if (event.data instanceof ArrayBuffer) {
+          const blob = new Blob([event.data], { type: 'image/png' })
+          const url = URL.createObjectURL(blob)
+          const img = new Image()
+          img.onload = () => {
+            ctx.drawImage(img, 0, 0)
+            URL.revokeObjectURL(url)
+            frameCount++
+            const now = performance.now()
+            if (now - lastFpsTime >= 1000) {
+              document.getElementById('fps').textContent = frameCount
+              frameCount = 0
+              lastFpsTime = now
+            }
+          }
+          img.src = url
+        } else {
+          const data = JSON.parse(event.data)
+          if (data.type === 'error') {
+            ctx.fillStyle = '#1a1a1a'
+            ctx.fillRect(0, 0, 320, 200)
+            ctx.fillStyle = '#ef4444'
+            ctx.fillText(data.message, 160, 100)
+            return
+          }
+          if (data.tick !== undefined) document.getElementById('tick').textContent = data.tick
+          if (data.latency !== undefined) document.getElementById('latency').textContent = data.latency
+        }
+      }
+
+      // Send key state changes as input records
+      let sendTimer = null
+
+      function sendKeys() {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'key', keys: currentKeys, seq: inputSeq++ }))
+        }
+      }
+
+      document.addEventListener('keydown', (e) => {
+        e.preventDefault()
+        const bit = KEY_BITS[e.code]
+        if (bit !== undefined) {
+          currentKeys |= (1 << bit)
+          sendKeys()
+        }
+      })
+
+      document.addEventListener('keyup', (e) => {
+        e.preventDefault()
+        const bit = KEY_BITS[e.code]
+        if (bit !== undefined) {
+          currentKeys &= ~(1 << bit)
+          sendKeys()
+        }
+      })
+
+      // Send periodic key state updates even when no keys change
+      // (so the server knows to keep ticking)
+      sendTimer = setInterval(sendKeys, 100)
+    }
   </script>
 </body>
 </html>

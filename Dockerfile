@@ -1,7 +1,6 @@
-# Doom over AT Protocol -- Combined server + client image
+# Doom over AT Protocol -- Multi-stage build
 #
-# Runs both the Doom WASM engine (server) and the browser-facing
-# client from a single container for simplicity.
+# Builds both the game server and the player client.
 
 FROM node:22-slim AS base
 RUN corepack enable && corepack prepare pnpm@10.29.2 --activate
@@ -18,13 +17,7 @@ RUN pnpm install --frozen-lockfile
 COPY tsconfig.base.json ./
 COPY packages/ packages/
 
-# Build lexicons first (other packages depend on it)
+# Build lexicons (other packages depend on it)
 RUN pnpm --filter @singi-labs/doom-lexicons build
 
-# The server runs via tsx in dev mode (no build step needed for now)
-# WASM files are pre-built and committed
-EXPOSE 8666
-
-# Default: run the local harness (Phase 1)
-# Will be updated for the federated version
-CMD ["pnpm", "--filter", "@singi-labs/doom-server", "dev:local"]
+EXPOSE 8666 8667

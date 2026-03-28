@@ -1,15 +1,11 @@
 import { z } from 'zod'
 
 const envSchema = z.object({
-  /** AT Protocol PDS URL (e.g. https://bsky.social) */
-  ATP_SERVICE: z.string().url(),
-  /** AT Protocol handle or DID */
-  ATP_IDENTIFIER: z.string().min(1),
-  /** AT Protocol app password */
-  ATP_PASSWORD: z.string().min(1),
+  /** Public URL of the client (e.g. https://doom.singi.dev) */
+  PUBLIC_URL: z.string().url().default('http://localhost:8667'),
   /** Game server DID to subscribe to for frames */
   SERVER_DID: z.string().startsWith('did:'),
-  /** Port for local browser UI */
+  /** Port for local HTTP server */
   CLIENT_PORT: z.coerce.number().default(8667),
 })
 

@@ -1,24 +1,42 @@
 # Doom over AT Protocol -- Docker Compose
 #
-# Runs on the Barazo staging VPS alongside the existing Caddy proxy.
-# Joins the barazo_frontend network so Caddy can route doom.singi.dev traffic.
+# Two services:
+# - doom-server: runs the Doom engine, reads inputs, writes frames
+# - doom-client: serves browser UI, handles OAuth, writes inputs, reads frames
 
 services:
-  doom:
+  doom-server:
     build: .
+    command: ["pnpm", "--filter", "@singi-labs/doom-server", "dev"]
     restart: unless-stopped
     environment:
-      - WAD_PATH=/app/doom1.wad
-      - DEBUG_PORT=8666
-      - TARGET_FPS=15
       - ATP_SERVICE=${ATP_SERVICE:-https://bsky.social}
       - ATP_IDENTIFIER=${ATP_IDENTIFIER}
       - ATP_PASSWORD=${ATP_PASSWORD}
-      - SERVER_DID=${SERVER_DID}
+      - WAD_PATH=/app/doom1.wad
+      - DEBUG_PORT=8666
     volumes:
       - ./doom1.wad:/app/doom1.wad:ro
     networks:
       - barazo_frontend
+      - doom_internal
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  doom-client:
+    build: .
+    command: ["pnpm", "--filter", "@singi-labs/doom-client", "dev"]
+    restart: unless-stopped
+    environment:
+      - PUBLIC_URL=${PUBLIC_URL:-https://doom.singi.dev}
+      - SERVER_DID=${SERVER_DID}
+      - CLIENT_PORT=8667
+    networks:
+      - barazo_frontend
+      - doom_internal
     logging:
       driver: json-file
       options:
@@ -28,3 +46,4 @@ services:
 networks:
   barazo_frontend:
     external: true
+  doom_internal:
