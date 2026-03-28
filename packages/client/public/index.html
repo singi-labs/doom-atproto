@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Doom over AT Protocol</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #000;
+      color: #fff;
+      font-family: 'Source Code Pro', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    h1 { font-size: 1.2rem; margin-bottom: 1rem; color: #b91c1c; }
+    canvas {
+      border: 2px solid #333;
+      image-rendering: pixelated;
+      width: 640px;
+      height: 400px;
+    }
+    #stats {
+      margin-top: 1rem;
+      font-size: 0.8rem;
+      color: #666;
+    }
+    #stats span { color: #b91c1c; }
+  </style>
+</head>
+<body>
+  <h1>DOOM over AT Protocol</h1>
+  <canvas id="game" width="320" height="200"></canvas>
+  <div id="stats">
+    FPS: <span id="fps">0</span> |
+    Latency: <span id="latency">--</span>ms |
+    Tick: <span id="tick">0</span>
+  </div>
+  <script>
+    // Client-side rendering will connect via WebSocket to the Node.js client process
+    const canvas = document.getElementById('game')
+    const ctx = canvas.getContext('2d')
+    ctx.fillStyle = '#1a1a1a'
+    ctx.fillRect(0, 0, 320, 200)
+    ctx.fillStyle = '#b91c1c'
+    ctx.font = '16px monospace'
+    ctx.textAlign = 'center'
+    ctx.fillText('Waiting for connection...', 160, 100)
+  </script>
+</body>
+</html>

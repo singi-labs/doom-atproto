@@ -1,0 +1,57 @@
+{
+  "lexicon": 1,
+  "id": "dev.singi.doom.defs",
+  "description": "Shared definitions for Doom over AT Protocol.",
+  "defs": {
+    "keyState": {
+      "type": "object",
+      "description": "Bitmask of currently pressed keys for one game tick.",
+      "required": ["keys"],
+      "properties": {
+        "keys": {
+          "type": "integer",
+          "description": "Bitmask of pressed keys. Bit 0=forward, 1=backward, 2=left, 3=right, 4=fire, 5=use, 6=strafe, 7=speed, 8-15=weapon select, 16=escape, 17=enter, 18=tab (map), 19=pause.",
+          "minimum": 0,
+          "maximum": 1048575
+        }
+      }
+    },
+    "frameMeta": {
+      "type": "object",
+      "description": "Metadata about a rendered frame.",
+      "required": ["width", "height", "encoding"],
+      "properties": {
+        "width": {
+          "type": "integer",
+          "description": "Frame width in pixels.",
+          "minimum": 1,
+          "maximum": 640
+        },
+        "height": {
+          "type": "integer",
+          "description": "Frame height in pixels.",
+          "minimum": 1,
+          "maximum": 400
+        },
+        "encoding": {
+          "type": "string",
+          "description": "How the frame data is encoded.",
+          "knownValues": [
+            "dev.singi.doom.defs#encodingPng",
+            "dev.singi.doom.defs#encodingPaletteRle"
+          ],
+          "maxLength": 500,
+          "maxGraphemes": 50
+        }
+      }
+    },
+    "encodingPng": {
+      "type": "token",
+      "description": "Frame encoded as PNG image blob."
+    },
+    "encodingPaletteRle": {
+      "type": "token",
+      "description": "Frame encoded as RLE-compressed palette-indexed buffer."
+    }
+  }
+}

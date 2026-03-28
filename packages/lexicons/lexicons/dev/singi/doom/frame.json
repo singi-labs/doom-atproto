@@ -1,0 +1,49 @@
+{
+  "lexicon": 1,
+  "id": "dev.singi.doom.frame",
+  "description": "A rendered game frame written by the game server to its PDS.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Record containing one or more rendered Doom frames.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["session", "seq", "meta", "frames", "createdAt"],
+        "properties": {
+          "session": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "The game session this frame belongs to."
+          },
+          "seq": {
+            "type": "integer",
+            "description": "Sequence number of the first frame in this batch.",
+            "minimum": 0
+          },
+          "meta": {
+            "type": "ref",
+            "ref": "dev.singi.doom.defs#frameMeta",
+            "description": "Frame dimensions and encoding metadata."
+          },
+          "frames": {
+            "type": "array",
+            "description": "Array of frame blobs. Each blob is a PNG-encoded frame.",
+            "minLength": 1,
+            "maxLength": 35,
+            "items": {
+              "type": "blob",
+              "accept": ["image/png"],
+              "maxSize": 65536
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Client-declared timestamp when this frame was originally created."
+          }
+        }
+      }
+    }
+  }
+}

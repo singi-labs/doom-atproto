@@ -1,0 +1,69 @@
+{
+  "lexicon": 1,
+  "id": "dev.singi.doom.session",
+  "description": "A Doom game session with metadata about the WAD, player, and timing.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Record representing an active or completed Doom game session.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["wad", "player", "status", "tickRate", "createdAt"],
+        "properties": {
+          "wad": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "maxGraphemes": 100,
+            "description": "WAD file identifier (e.g. 'doom1-shareware')."
+          },
+          "player": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the player for this session."
+          },
+          "status": {
+            "type": "string",
+            "knownValues": [
+              "dev.singi.doom.session#active",
+              "dev.singi.doom.session#paused",
+              "dev.singi.doom.session#ended"
+            ],
+            "maxLength": 500,
+            "maxGraphemes": 50,
+            "description": "Current session status."
+          },
+          "tickRate": {
+            "type": "integer",
+            "description": "Target ticks per second (Doom default: 35).",
+            "minimum": 1,
+            "maximum": 35
+          },
+          "totalTicks": {
+            "type": "integer",
+            "description": "Total ticks processed so far.",
+            "minimum": 0
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Client-declared timestamp when this session was originally created."
+          }
+        }
+      }
+    },
+    "active": {
+      "type": "token",
+      "description": "Session is actively running."
+    },
+    "paused": {
+      "type": "token",
+      "description": "Session is paused."
+    },
+    "ended": {
+      "type": "token",
+      "description": "Session has ended."
+    }
+  }
+}

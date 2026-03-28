@@ -1,0 +1,44 @@
+{
+  "lexicon": 1,
+  "id": "dev.singi.doom.input",
+  "description": "Player keyboard input for one or more game ticks, written to the player's PDS.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Record containing player input for a batch of game ticks.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["session", "seq", "keys", "createdAt"],
+        "properties": {
+          "session": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "The game session this input belongs to."
+          },
+          "seq": {
+            "type": "integer",
+            "description": "Sequence number of the first tick in this batch. Monotonically increasing per session.",
+            "minimum": 0
+          },
+          "keys": {
+            "type": "array",
+            "description": "Array of key bitmasks, one per tick. Allows batching multiple ticks in one record.",
+            "minLength": 1,
+            "maxLength": 35,
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1048575
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Client-declared timestamp when this input was originally created."
+          }
+        }
+      }
+    }
+  }
+}

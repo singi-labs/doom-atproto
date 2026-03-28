@@ -1,0 +1,51 @@
+{
+  "lexicon": 1,
+  "id": "dev.singi.doom.artifact",
+  "description": "A chunk of a game asset stored on a PDS. Enables storage-only mode: store WAD and engine as blobs, fetch and run locally.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Record containing one chunk of a game asset (WAD file, engine binary, etc.).",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["name", "index", "totalChunks", "hash", "data", "createdAt"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "maxGraphemes": 50,
+            "description": "Asset identifier (e.g. 'doom1-wad', 'engine-wasm')."
+          },
+          "index": {
+            "type": "integer",
+            "description": "Zero-based chunk index within the asset.",
+            "minimum": 0
+          },
+          "totalChunks": {
+            "type": "integer",
+            "description": "Total number of chunks for this asset.",
+            "minimum": 1
+          },
+          "hash": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "SHA-256 hex digest of the complete reassembled asset (same across all chunks)."
+          },
+          "data": {
+            "type": "blob",
+            "accept": ["application/octet-stream"],
+            "maxSize": 1000000,
+            "description": "Chunk payload (up to 1MB)."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Client-declared timestamp when this artifact was originally created."
+          }
+        }
+      }
+    }
+  }
+}

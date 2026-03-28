@@ -1,0 +1,32 @@
+{
+  "name": "@singi-labs/doom-server",
+  "version": "0.1.0",
+  "description": "Doom game server -- reads inputs from AT Protocol, runs Doom WASM, writes frames back",
+  "type": "module",
+  "packageManager": "pnpm@10.29.2",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "lint": "eslint src/",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@atproto/api": "0.15.8",
+    "@singi-labs/doom-lexicons": "workspace:*",
+    "pngjs": "7.0.0",
+    "ws": "8.18.2",
+    "zod": "3.24.4"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.3",
+    "@types/ws": "8.18.1",
+    "eslint": "9.27.0",
+    "tsx": "4.19.4",
+    "typescript": "5.8.3",
+    "typescript-eslint": "8.32.1",
+    "vitest": "3.1.4"
+  }
+}
