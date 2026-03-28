@@ -5,6 +5,14 @@
  * Generated types live in ./generated/ (run `pnpm generate` to regenerate).
  */
 
+// Re-export generated types
+export * from './generated/index.js'
+export * as DevSingiDoomDefs from './generated/types/dev/singi/doom/defs.js'
+export * as DevSingiDoomSession from './generated/types/dev/singi/doom/session.js'
+export * as DevSingiDoomInput from './generated/types/dev/singi/doom/input.js'
+export * as DevSingiDoomFrame from './generated/types/dev/singi/doom/frame.js'
+export * as DevSingiDoomArtifact from './generated/types/dev/singi/doom/artifact.js'
+
 export const LEXICON_IDS = {
   DoomDefs: 'dev.singi.doom.defs',
   DoomSession: 'dev.singi.doom.session',

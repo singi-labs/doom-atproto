@@ -25,6 +25,8 @@
   },
   "dependencies": {
     "@atproto/lexicon": "0.6.2",
+    "@atproto/xrpc-server": "^0.10.18",
+    "multiformats": "^13.4.2",
     "zod": "3.24.4"
   },
   "devDependencies": {
