@@ -4,3 +4,14 @@ dist/
 .env
 *.wad
 *.WAD
+
+# Emscripten SDK (installed locally, not committed)
+emsdk/
+
+# Cloned doomgeneric source (build dependency)
+doom-doomgeneric/
+
+# WASM build artifacts
+wasm-build/build/
+wasm-build/doom.js
+wasm-build/doom.wasm
