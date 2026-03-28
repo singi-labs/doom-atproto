@@ -99,6 +99,9 @@
     <p>Every keystroke writes a record to your PDS.<br>
     Every frame is read from the game server's PDS.<br>
     Full federation. No shortcuts.</p>
+    <p style="color: #666; font-size: 0.75rem; margin-top: -0.5rem;">
+    Warning: this will be slow. Every input and frame travels through<br>
+    the AT Protocol network. Expect 1-5 fps. That's the point.</p>
     <form id="login-form">
       <input type="text" id="handle" placeholder="your-handle.bsky.social" autocomplete="username" />
       <button type="submit">Login</button>
@@ -107,7 +110,7 @@
     <div id="login-status"></div>
   </div>
 
-  <div id="player-info">Playing as <span id="player-did"></span></div>
+  <div id="player-info">Playing as <span id="player-handle"></span></div>
   <canvas id="game" width="320" height="200"></canvas>
   <div id="stats">
     FPS: <span id="fps">0</span> |
@@ -131,7 +134,7 @@
       .then(r => r.json())
       .then(data => {
         if (data.authenticated) {
-          startGame(data.did)
+          startGame(data.handle || data.did)
         }
       })
 
@@ -187,12 +190,12 @@
       Escape: 16, Enter: 17, Tab: 18, Pause: 19,
     }
 
-    function startGame(did) {
+    function startGame(handle) {
       loginDiv.style.display = 'none'
       canvas.style.display = 'block'
       statsDiv.style.display = 'block'
       playerInfo.style.display = 'block'
-      document.getElementById('player-did').textContent = did
+      document.getElementById('player-handle').textContent = handle
 
       ctx.fillStyle = '#1a1a1a'
       ctx.fillRect(0, 0, 320, 200)

@@ -36,8 +36,8 @@ async function main() {
   const oauthClient = await createOAuthClient({ publicUrl: config.PUBLIC_URL })
   console.log('OAuth client ready')
 
-  // Track player sessions: sessionId -> { did, agent }
-  const playerSessions = new Map<string, { did: string; agent: Agent }>()
+  // Track player sessions: sessionId -> { did, handle, agent }
+  const playerSessions = new Map<string, { did: string; handle: string; agent: Agent }>()
 
   // Read browser HTML
   const clientHtml = await readFile(
@@ -118,9 +118,31 @@ async function main() {
 
           // Create an authenticated agent for this player
           const agent = new Agent(session)
-          playerSessions.set(sessionId, { did, agent })
 
-          console.log(`Player authenticated: ${did}`)
+          // Resolve handle
+          let handle: string = did
+          try {
+            const publicAgent = new Agent('https://public.api.bsky.app')
+            const profile = await publicAgent.getProfile({ actor: did as `did:plc:${string}` })
+            handle = profile.data.handle
+          } catch {
+            console.warn('Could not resolve handle for', did)
+          }
+
+          playerSessions.set(sessionId, { did, handle, agent })
+
+          // Notify game server about the new player
+          try {
+            await fetch(`http://doom-server:${8666}/api/start`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ playerDid: did }),
+            })
+          } catch (err) {
+            console.error('Failed to notify server:', err)
+          }
+
+          console.log(`Player authenticated: ${handle} (${did})`)
 
           // Redirect to game with session cookie
           res.writeHead(302, {
@@ -144,7 +166,7 @@ async function main() {
 
         res.writeHead(200, { 'Content-Type': 'application/json' })
         if (session) {
-          res.end(JSON.stringify({ authenticated: true, did: session.did }))
+          res.end(JSON.stringify({ authenticated: true, did: session.did, handle: session.handle }))
         } else {
           res.end(JSON.stringify({ authenticated: false }))
         }
