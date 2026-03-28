@@ -7,8 +7,8 @@ const envSchema = z.object({
   ATP_IDENTIFIER: z.string().min(1),
   /** AT Protocol app password */
   ATP_PASSWORD: z.string().min(1),
-  /** Player DID to accept inputs from */
-  PLAYER_DID: z.string().startsWith('did:'),
+  /** Player DID to accept inputs from (optional -- set via API) */
+  PLAYER_DID: z.string().startsWith('did:').optional(),
   /** WAD file path */
   WAD_PATH: z.string().default('doom1.wad'),
   /** Port for local WebSocket debug server */

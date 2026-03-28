@@ -52,7 +52,8 @@ export interface OAuthConfig {
 
 export async function createOAuthClient(config: OAuthConfig): Promise<NodeOAuthClient> {
   // Generate a fresh keypair on startup (sessions don't survive restart -- fine for a game)
-  const key = await JoseKey.generate(['ES256'])
+  // The key needs a 'kid' for private_key_jwt authentication
+  const key = await JoseKey.generate(['ES256'], crypto.randomUUID())
 
   return new NodeOAuthClient({
     clientMetadata: {
