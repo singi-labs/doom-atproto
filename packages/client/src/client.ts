@@ -77,16 +77,26 @@ async function main() {
           return
         }
 
+        // Try granular scope first (only write input records), fall back if PDS rejects
         try {
           const authUrl = await oauthClient.authorize(handle, {
-            scope: 'atproto transition:generic',
+            scope: 'atproto repo:dev.singi.doom.input',
           })
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ redirectUrl: authUrl.toString() }))
-        } catch (err) {
-          console.error('OAuth authorize failed:', err)
-          res.writeHead(502, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ error: 'Authorization failed' }))
+        } catch {
+          console.log('Granular scope rejected, falling back to transition:generic')
+          try {
+            const authUrl = await oauthClient.authorize(handle, {
+              scope: 'atproto transition:generic',
+            })
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ redirectUrl: authUrl.toString() }))
+          } catch (err) {
+            console.error('OAuth authorize failed:', err)
+            res.writeHead(502, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'Authorization failed' }))
+          }
         }
         return
       }
