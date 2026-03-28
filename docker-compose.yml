@@ -1,0 +1,30 @@
+# Doom over AT Protocol -- Docker Compose
+#
+# Runs on the Barazo staging VPS alongside the existing Caddy proxy.
+# Joins the barazo_frontend network so Caddy can route doom.singi.dev traffic.
+
+services:
+  doom:
+    build: .
+    restart: unless-stopped
+    environment:
+      - WAD_PATH=/app/doom1.wad
+      - DEBUG_PORT=8666
+      - TARGET_FPS=15
+      - ATP_SERVICE=${ATP_SERVICE:-https://bsky.social}
+      - ATP_IDENTIFIER=${ATP_IDENTIFIER}
+      - ATP_PASSWORD=${ATP_PASSWORD}
+      - SERVER_DID=${SERVER_DID}
+    volumes:
+      - ./doom1.wad:/app/doom1.wad:ro
+    networks:
+      - barazo_frontend
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  barazo_frontend:
+    external: true
