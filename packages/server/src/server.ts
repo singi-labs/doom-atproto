@@ -14,10 +14,12 @@ import { LEXICON_IDS } from '@singi-labs/doom-lexicons'
 import { createJetstreamClient } from './jetstream.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-// 1 frame every 2 seconds = 2 API calls per frame = 1 call/sec
-// Hourly: 1800 creates * 3 points = 5400 points (just over 5000 limit)
-// So cap sessions to ~50 min max. Good enough for a demo.
-const FRAME_INTERVAL_MS = 2000
+// Run multiple game ticks between PDS writes.
+// Each PDS write = uploadBlob + createRecord = 2 API calls = 3 points.
+// At 1 write/sec: 3600 points/hour (under 5000 limit).
+// With TICKS_PER_WRITE=5 at 1 write/sec, effective game speed = 5 ticks/sec.
+const TICKS_PER_WRITE = 5
+const WRITE_INTERVAL_MS = 1000
 
 async function main() {
   const config = loadConfig()
@@ -25,7 +27,7 @@ async function main() {
   console.log('Doom AT Protocol -- Game Server (Jetstream)')
   console.log(`  PDS: ${config.ATP_SERVICE}`)
   console.log(`  Bot: ${config.ATP_IDENTIFIER}`)
-  console.log(`  Frame interval: ${FRAME_INTERVAL_MS}ms`)
+  console.log(`  ${TICKS_PER_WRITE} ticks per write, ${WRITE_INTERVAL_MS}ms interval`)
   console.log()
 
   // Login with app password
@@ -64,22 +66,49 @@ async function main() {
   let gameLoopRunning = false
   let gameLoopAbort: AbortController | null = null
 
-  // Frame handling: write to PDS
+  // Frame handling
+  let lastFramePng: Buffer | null = null
   let pendingFrameResolve: (() => void) | null = null
+  let latestPng: Buffer | null = null
+  let latestElapsed = 0
 
-  worker.on('message', async (msg: { type: string; png?: Buffer; tick?: number; elapsed?: number; message?: string }) => {
+  worker.on('message', (msg: { type: string; png?: Buffer; tick?: number; elapsed?: number; message?: string }) => {
     if (msg.type === 'error') {
       console.error('Worker error:', msg.message)
-      if (pendingFrameResolve) { pendingFrameResolve(); pendingFrameResolve = null }
-      return
     }
-    if (msg.type !== 'frame') return
+    if (msg.type === 'frame') {
+      latestPng = msg.png!
+      latestElapsed = msg.elapsed ?? 0
+    }
+    if (pendingFrameResolve) { pendingFrameResolve(); pendingFrameResolve = null }
+  })
 
+  function tickAndWait(): Promise<void> {
+    return new Promise((resolve) => {
+      pendingFrameResolve = resolve
+      worker.postMessage({ type: 'tick' })
+    })
+  }
+
+  /** Run multiple ticks, then write the latest frame to PDS if it changed */
+  async function tickBatchAndWrite() {
+    // Run multiple game ticks
+    for (let i = 0; i < TICKS_PER_WRITE; i++) {
+      await tickAndWait()
+    }
+
+    if (!latestPng) return
+
+    // Skip if frame hasn't changed (same bytes = same content)
+    if (lastFramePng && latestPng.length === lastFramePng.length && latestPng.equals(lastFramePng)) {
+      return // identical frame, don't waste API calls
+    }
+
+    lastFramePng = Buffer.from(latestPng)
     frameSeq++
-    const png = msg.png!
 
     try {
-      const blobResponse = await agent.uploadBlob(png, { encoding: 'image/png' })
+      const blobResponse = await agent.uploadBlob(latestPng, { encoding: 'image/png' })
       await agent.com.atproto.repo.createRecord({
         repo: serverDid,
         collection: LEXICON_IDS.DoomFrame,
@@ -92,8 +121,8 @@ async function main() {
           createdAt: new Date().toISOString(),
         },
       })
-      if (frameSeq <= 3 || frameSeq % 20 === 0) {
-        console.log(`Frame ${frameSeq}: ${png.length}b, ${msg.elapsed}ms`)
+      if (frameSeq <= 3 || frameSeq % 10 === 0) {
+        console.log(`Write ${frameSeq}: ${latestPng.length}b, ${latestElapsed}ms/tick, ${TICKS_PER_WRITE} ticks`)
       }
       rateLimited = false
     } catch (err) {
@@ -104,15 +133,6 @@ async function main() {
         console.error('Frame write failed:', message)
       }
     }
-
-    if (pendingFrameResolve) { pendingFrameResolve(); pendingFrameResolve = null }
-  })
-
-  function tickAndWait(): Promise<void> {
-    return new Promise((resolve) => {
-      pendingFrameResolve = resolve
-      worker.postMessage({ type: 'tick' })
-    })
   }
 
   // Jetstream: subscribe to player input records
@@ -144,16 +164,15 @@ async function main() {
 
   // Game loop: tick at target FPS
   async function gameLoop(signal: AbortSignal) {
-    const interval = FRAME_INTERVAL_MS
-    console.log(`Game loop running (1 frame every ${interval}ms)`)
+    console.log(`Game loop: ${TICKS_PER_WRITE} ticks per write, ${WRITE_INTERVAL_MS}ms between writes`)
 
     while (!signal.aborted) {
       const start = Date.now()
       if (!rateLimited) {
-        await tickAndWait()
+        await tickBatchAndWrite()
       }
       const elapsed = Date.now() - start
-      const wait = Math.max(100, interval - elapsed)
+      const wait = Math.max(100, WRITE_INTERVAL_MS - elapsed)
       await new Promise((r) => setTimeout(r, wait))
     }
     console.log('Game loop stopped')
