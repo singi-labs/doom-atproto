@@ -193,24 +193,28 @@ async function main() {
       if (event.kind !== 'commit' || event.commit?.operation !== 'create') return
       if (event.commit.collection !== LEXICON_IDS.DoomFrame) return
 
-      const cid = event.commit.cid
-      if (!cid) return
+      // Extract blob CID from the record (not the record CID)
+      const record = event.commit.record as {
+        seq?: number
+        createdAt?: string
+        frames?: Array<{ ref?: { $link?: string } }>
+      } | undefined
+
+      const blobCid = record?.frames?.[0]?.ref?.$link
+      if (!blobCid) return
 
       try {
-        // Fetch the frame blob from the PDS
         const blobResponse = await pdsAgent.com.atproto.sync.getBlob({
           did: config.SERVER_DID,
-          cid,
+          cid: blobCid,
         })
 
         const png = Buffer.from(blobResponse.data as unknown as ArrayBuffer)
         frameCount++
 
         if (frameCount <= 3 || frameCount % 20 === 0) {
-          console.log(`Frame ${frameCount}: ${png.length}b via Jetstream`)
+          console.log(`Frame ${frameCount}: ${png.length}b via Jetstream (blob: ${blobCid.slice(0, 20)}...)`)
         }
-
-        const record = event.commit.record as { seq?: number; createdAt?: string } | undefined
 
         // Send to all connected browser clients
         for (const [ws] of clients) {
