@@ -113,6 +113,7 @@
     <div id="login-status"></div>
   </div>
 
+  <div id="player-note" style="display: none; font-size: 0.8rem; color: #9ca3af; margin-bottom: 0.75rem;">Note that this is not going to be a nice gaming experience, but that's not the point ;)</div>
   <div id="player-info">Playing as <span id="player-handle"></span> | <span id="session-timer" style="color: #9ca3af;"></span></div>
   <canvas id="game" width="320" height="200"></canvas>
   <div id="stats">
@@ -206,6 +207,7 @@
       statsDiv.style.display = 'block'
       playerInfo.style.display = 'block'
       document.getElementById('controls').style.display = 'block'
+      document.getElementById('player-note').style.display = 'block'
       document.getElementById('player-handle').textContent = handle
 
       ctx.fillStyle = '#1a1a1a'
