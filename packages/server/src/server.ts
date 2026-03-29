@@ -134,11 +134,12 @@ async function main() {
     if (!latestPng) return
 
     // Skip unchanged frames
-    if (lastFramePng && latestPng.length === lastFramePng.length && latestPng.equals(lastFramePng)) {
+    const pngBuf = Buffer.from(latestPng)
+    if (lastFramePng && pngBuf.length === lastFramePng.length && pngBuf.equals(lastFramePng)) {
       return
     }
 
-    lastFramePng = Buffer.from(latestPng)
+    lastFramePng = pngBuf
     frameSeq++
 
     const entry = getCurrentAgent()
