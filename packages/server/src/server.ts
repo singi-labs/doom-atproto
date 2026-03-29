@@ -25,7 +25,7 @@ async function main() {
   console.log('Doom AT Protocol -- Game Server (Jetstream)')
   console.log(`  PDS: ${config.ATP_SERVICE}`)
   console.log(`  Bot: ${config.ATP_IDENTIFIER}`)
-  console.log(`  Target: ${FRAMES_PER_SECOND} fps`)
+  console.log(`  Frame interval: ${FRAME_INTERVAL_MS}ms`)
   console.log()
 
   // Login with app password
