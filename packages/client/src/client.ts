@@ -208,6 +208,12 @@ async function main() {
       const blobCid = record?.frames?.[0]?.ref?.$link
       if (!blobCid) return
 
+      // Skip stale frames (older than 10 seconds) -- prevents replaying backlog
+      if (record?.createdAt) {
+        const age = Date.now() - new Date(record.createdAt).getTime()
+        if (age > 10_000) return
+      }
+
       try {
         const blobResponse = await pdsAgent.com.atproto.sync.getBlob({
           did: event.did,

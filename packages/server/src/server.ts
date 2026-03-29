@@ -207,8 +207,14 @@ async function main() {
 
       lastInputTime = Date.now()
 
-      const record = event.commit.record as { keys?: number[] } | undefined
+      const record = event.commit.record as { keys?: number[]; createdAt?: string } | undefined
       if (!record?.keys) return
+
+      // Skip stale inputs (older than 10 seconds)
+      if (record.createdAt) {
+        const age = Date.now() - new Date(record.createdAt).getTime()
+        if (age > 10_000) return
+      }
 
       for (const keyBitmask of record.keys) {
         const changed = keyBitmask ^ previousKeyState
