@@ -77,9 +77,15 @@ async function main() {
           return
         }
 
+        // Normalize handle: strip leading @, append .bsky.social if no domain
+        let normalizedHandle = handle.trim().replace(/^@/, '')
+        if (!normalizedHandle.includes('.')) {
+          normalizedHandle += '.bsky.social'
+        }
+
         // Try granular scope first (only write input records), fall back if PDS rejects
         try {
-          const authUrl = await oauthClient.authorize(handle, {
+          const authUrl = await oauthClient.authorize(normalizedHandle, {
             scope: 'atproto repo:dev.singi.doom.input',
           })
           res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -87,7 +93,7 @@ async function main() {
         } catch {
           console.log('Granular scope rejected, falling back to transition:generic')
           try {
-            const authUrl = await oauthClient.authorize(handle, {
+            const authUrl = await oauthClient.authorize(normalizedHandle, {
               scope: 'atproto transition:generic',
             })
             res.writeHead(200, { 'Content-Type': 'application/json' })
