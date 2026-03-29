@@ -62,7 +62,9 @@ export async function createOAuthClient(config: OAuthConfig): Promise<NodeOAuthC
       client_uri: config.publicUrl,
       response_types: ['code'],
       grant_types: ['authorization_code', 'refresh_token'],
-      scope: 'atproto transition:generic',
+      // Client metadata declares maximum scope. authorize() requests a subset.
+      // Include both granular and fallback so both paths work.
+      scope: 'atproto repo:dev.singi.doom.input transition:generic',
       redirect_uris: [`${config.publicUrl}/oauth/callback`],
       dpop_bound_access_tokens: true,
       token_endpoint_auth_method: 'private_key_jwt',
