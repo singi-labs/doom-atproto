@@ -216,6 +216,8 @@ async function main() {
   let lastFrameCursor = ''
   let pollTimer: ReturnType<typeof setInterval> | null = null
 
+  let pollCount = 0
+
   async function pollFrames() {
     try {
       const response = await serverAgent.com.atproto.repo.listRecords({
@@ -225,25 +227,40 @@ async function main() {
         reverse: true, // newest first
       })
 
+      pollCount++
+      if (pollCount <= 3) {
+        console.log(`Poll ${pollCount}: ${response.data.records.length} records, cursor: ${lastFrameCursor.slice(-20)}`)
+      }
+
       for (const record of response.data.records.reverse()) {
         if (record.uri <= lastFrameCursor) continue
         lastFrameCursor = record.uri
 
         const frameData = record.value as {
           seq: number
-          frames: Array<{ ref: { $link: string }; mimeType: string }>
+          frames: Array<{ $type: string; ref: { $link: string }; mimeType: string }>
           createdAt: string
         }
 
         // Download each frame blob
         for (const frame of frameData.frames) {
           try {
+            // Blob ref is at frame.ref.$link
+            const cid = frame.ref.$link
+            if (pollCount <= 3) {
+              console.log(`  Fetching blob: ${cid}`)
+            }
+
             const blobResponse = await serverAgent.com.atproto.sync.getBlob({
               did: config.SERVER_DID,
-              cid: frame.ref.$link,
+              cid,
             })
 
             const png = Buffer.from(blobResponse.data as unknown as ArrayBuffer)
+
+            if (pollCount <= 3) {
+              console.log(`  Got PNG: ${png.length} bytes`)
+            }
 
             // Send to all connected clients
             for (const [ws] of clients) {
@@ -256,12 +273,14 @@ async function main() {
               }
             }
           } catch (err) {
-            console.error('Failed to fetch frame blob:', err)
+            console.error('Failed to fetch frame blob:', err instanceof Error ? err.message : err)
           }
         }
       }
-    } catch {
-      // Server may not have any frame records yet -- ignore
+    } catch (err) {
+      if (pollCount <= 3) {
+        console.error('Poll error:', err instanceof Error ? err.message : err)
+      }
     }
   }
 
