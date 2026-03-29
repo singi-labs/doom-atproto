@@ -239,15 +239,15 @@ async function main() {
 
         const frameData = record.value as {
           seq: number
-          frames: Array<{ $type: string; ref: { $link: string }; mimeType: string }>
+          frames: Array<{ ref: { toString(): string }; mimeType: string }>
           createdAt: string
         }
 
         // Download each frame blob
         for (const frame of frameData.frames) {
           try {
-            // Blob ref is at frame.ref.$link
-            const cid = frame.ref.$link
+            // SDK deserializes blob ref as a CID object -- use toString()
+            const cid = frame.ref.toString()
             if (pollCount <= 3) {
               console.log(`  Fetching blob: ${cid}`)
             }
