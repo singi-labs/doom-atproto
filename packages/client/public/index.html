@@ -266,6 +266,8 @@
 
       document.addEventListener('keydown', (e) => {
         e.preventDefault()
+        lastActivity = Date.now()
+        resumeFromPause()
         const bit = KEY_BITS[e.code]
         if (bit !== undefined) {
           currentKeys |= (1 << bit)
@@ -275,6 +277,7 @@
 
       document.addEventListener('keyup', (e) => {
         e.preventDefault()
+        lastActivity = Date.now()
         const bit = KEY_BITS[e.code]
         if (bit !== undefined) {
           currentKeys &= ~(1 << bit)
@@ -282,9 +285,44 @@
         }
       })
 
-      // Send periodic key state updates even when no keys change
-      // (so the server knows to keep ticking)
-      sendTimer = setInterval(sendKeys, 100)
+      // Only send key updates when there's actual activity
+      let lastActivity = Date.now()
+      let paused = false
+      const IDLE_TIMEOUT = 60_000 // 1 minute
+
+      function checkIdle() {
+        if (paused) return
+        if (Date.now() - lastActivity > IDLE_TIMEOUT) {
+          paused = true
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
+          ctx.fillRect(0, 0, 320, 200)
+          ctx.fillStyle = '#f59e0b'
+          ctx.font = '14px monospace'
+          ctx.textAlign = 'center'
+          ctx.fillText('Paused (idle)', 160, 90)
+          ctx.fillStyle = '#9ca3af'
+          ctx.font = '11px monospace'
+          ctx.fillText('Click or press a key to resume', 160, 115)
+          ws.send(JSON.stringify({ type: 'pause' }))
+        }
+      }
+
+      function resumeFromPause() {
+        if (!paused) return
+        paused = false
+        lastActivity = Date.now()
+        ws.send(JSON.stringify({ type: 'resume' }))
+      }
+
+      document.addEventListener('click', () => { lastActivity = Date.now(); resumeFromPause() })
+
+      setInterval(checkIdle, 5000)
+
+      // Send periodic key state updates only when active
+      sendTimer = setInterval(() => {
+        if (paused) return
+        sendKeys()
+      }, 100)
 
       // Session timer + rate limit warning
       const sessionStart = Date.now()

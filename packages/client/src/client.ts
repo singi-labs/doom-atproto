@@ -349,12 +349,22 @@ async function main() {
     }
 
     // Flush batched inputs every 500ms (2 writes/sec max)
-    writeTimer = setInterval(flushInputs, 500)
+    let inputPaused = false
+    writeTimer = setInterval(() => {
+      if (!inputPaused) flushInputs()
+    }, 500)
 
     ws.on('message', (data) => {
       const msg = JSON.parse(data.toString())
       if (msg.type === 'key') {
         pendingKeys.push(msg.keys ?? 0)
+      } else if (msg.type === 'pause') {
+        inputPaused = true
+        pendingKeys = []
+        console.log(`Player ${session.handle} paused (idle)`)
+      } else if (msg.type === 'resume') {
+        inputPaused = false
+        console.log(`Player ${session.handle} resumed`)
       }
     })
 
