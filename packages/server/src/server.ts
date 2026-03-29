@@ -16,10 +16,10 @@ import { createJetstreamClient } from './jetstream.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-// Self-hosted PDS: no rate limits. Push as fast as PDS + Jetstream can handle.
-// PDS write takes ~10ms average. Jetstream propagation ~50-200ms is the real ceiling.
-const TICKS_PER_WRITE = 1
-const WRITE_INTERVAL_MS = 50 // 20 writes/sec, 1:1 tick-to-frame
+// Self-hosted PDS: no rate limits.
+// Balance between game speed and engine stability.
+const TICKS_PER_WRITE = 3
+const WRITE_INTERVAL_MS = 150 // ~7 writes/sec, ~20 game ticks/sec
 const IDLE_TIMEOUT_MS = 60_000 // 1 minute
 // Point budget only matters for bsky.social accounts, not self-hosted PDS.
 // Keep tracking for monitoring but set high.
@@ -129,6 +129,9 @@ async function main() {
   }
 
   async function tickBatchAndWrite() {
+    // Apply queued key events before ticking (avoids sending to worker mid-tick)
+    flushKeyEvents()
+
     for (let i = 0; i < TICKS_PER_WRITE; i++) {
       await tickAndWait()
     }
@@ -192,7 +195,9 @@ async function main() {
     }
   }
 
-  // Jetstream: subscribe to player input records
+  // Queue key events from Jetstream, apply before each tick batch
+  const pendingKeyEvents: Array<{ pressed: boolean; key: number }> = []
+
   const jetstream = createJetstreamClient({
     collections: [LEXICON_IDS.DoomInput],
     onEvent: (event) => {
@@ -213,13 +218,21 @@ async function main() {
           const pressed = (keyBitmask >> bit) & 1
           const doomKey = bitmaskToDoomKey(bit)
           if (doomKey !== null) {
-            worker.postMessage({ type: 'key', pressed: !!pressed, key: doomKey })
+            pendingKeyEvents.push({ pressed: !!pressed, key: doomKey })
           }
         }
         previousKeyState = keyBitmask
       }
     },
   })
+
+  /** Send queued key events to worker (call before ticking) */
+  function flushKeyEvents() {
+    while (pendingKeyEvents.length > 0) {
+      const evt = pendingKeyEvents.shift()!
+      worker.postMessage({ type: 'key', pressed: evt.pressed, key: evt.key })
+    }
+  }
 
   async function gameLoop(signal: AbortSignal) {
     console.log(`Game loop: ${TICKS_PER_WRITE} ticks/write, ${WRITE_INTERVAL_MS}ms interval, ${IDLE_TIMEOUT_MS / 1000}s idle timeout`)
