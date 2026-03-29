@@ -3,47 +3,85 @@
  *
  * Subscribes to Jetstream for player input records,
  * runs Doom ticks, writes frame records to its own PDS.
+ * Cycles through multiple bot accounts to stay within rate limits.
  */
 import { Worker } from 'node:worker_threads'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer } from 'node:http'
 import { AtpAgent } from '@atproto/api'
-import { loadConfig } from './config.js'
+import { loadConfig, parseBotAccounts, type BotAccount } from './config.js'
 import { LEXICON_IDS } from '@singi-labs/doom-lexicons'
 import { createJetstreamClient } from './jetstream.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-// Run multiple game ticks between PDS writes.
-// Each PDS write = uploadBlob + createRecord = 2 API calls = 3 points.
-// At 1 write/sec: 3600 points/hour (under 5000 limit).
-// With TICKS_PER_WRITE=5 at 1 write/sec, effective game speed = 5 ticks/sec.
+
 const TICKS_PER_WRITE = 5
 const WRITE_INTERVAL_MS = 1000
+const IDLE_TIMEOUT_MS = 60_000 // 1 minute
+// Budget: 4000 points per account before cycling (leaves 1000 buffer from 5000 hourly limit)
+// Each frame write = 3 points (1 create). uploadBlob doesn't count as a create.
+const POINTS_BUDGET = 4000
+const POINTS_PER_WRITE = 3
 
 async function main() {
   const config = loadConfig()
+  const accounts = parseBotAccounts(config.ATP_ACCOUNTS)
 
   console.log('Doom AT Protocol -- Game Server (Jetstream)')
   console.log(`  PDS: ${config.ATP_SERVICE}`)
-  console.log(`  Bot: ${config.ATP_IDENTIFIER}`)
+  console.log(`  Bot accounts: ${accounts.map(a => a.identifier).join(', ')}`)
   console.log(`  ${TICKS_PER_WRITE} ticks per write, ${WRITE_INTERVAL_MS}ms interval`)
   console.log()
 
-  // Login with app password
-  const agent = new AtpAgent({ service: config.ATP_SERVICE })
-  await agent.login({
-    identifier: config.ATP_IDENTIFIER,
-    password: config.ATP_PASSWORD,
-  })
-  const serverDid = agent.session!.did
-  console.log(`Logged in as: ${serverDid}`)
+  // Login all bot accounts upfront
+  const agents: Array<{ agent: AtpAgent; did: string; account: BotAccount; pointsUsed: number; pointsResetAt: number }> = []
+  for (const account of accounts) {
+    const agent = new AtpAgent({ service: config.ATP_SERVICE })
+    await agent.login({ identifier: account.identifier, password: account.password })
+    const did = agent.session!.did
+    agents.push({ agent, did, account, pointsUsed: 0, pointsResetAt: Date.now() + 3600_000 })
+    console.log(`  Logged in: ${account.identifier} (${did})`)
+  }
+
+  let currentAgentIndex = 0
+
+  function getCurrentAgent() {
+    const entry = agents[currentAgentIndex]!
+    // Reset points if the hour has passed
+    if (Date.now() > entry.pointsResetAt) {
+      entry.pointsUsed = 0
+      entry.pointsResetAt = Date.now() + 3600_000
+    }
+    return entry
+  }
+
+  function cycleToNextAgent(): boolean {
+    const startIndex = currentAgentIndex
+    for (let i = 0; i < agents.length; i++) {
+      const nextIndex = (startIndex + 1 + i) % agents.length
+      const entry = agents[nextIndex]!
+      if (Date.now() > entry.pointsResetAt) {
+        entry.pointsUsed = 0
+        entry.pointsResetAt = Date.now() + 3600_000
+      }
+      if (entry.pointsUsed < POINTS_BUDGET) {
+        currentAgentIndex = nextIndex
+        console.log(`Cycled to bot account: ${entry.account.identifier} (${entry.pointsUsed} points used)`)
+        return true
+      }
+    }
+    console.error('All bot accounts exhausted! No account has budget remaining.')
+    return false
+  }
+
+  function getActiveServerDid(): string {
+    return agents[currentAgentIndex]!.did
+  }
 
   // Start Doom engine in worker thread
   const workerPath = join(__dirname, 'wasm', 'doom-worker.ts')
-  const worker = new Worker(workerPath, {
-    execArgv: ['--import', 'tsx'],
-  })
+  const worker = new Worker(workerPath, { execArgv: ['--import', 'tsx'] })
 
   const ready = new Promise<void>((resolve, reject) => {
     const onMessage = (msg: { type: string; message?: string }) => {
@@ -63,8 +101,8 @@ async function main() {
   let frameSeq = 0
   let rateLimited = false
   let previousKeyState = 0
-  let gameLoopRunning = false
   let gameLoopAbort: AbortController | null = null
+  let lastInputTime = Date.now()
 
   // Frame handling
   let lastFramePng: Buffer | null = null
@@ -72,10 +110,8 @@ async function main() {
   let latestPng: Buffer | null = null
   let latestElapsed = 0
 
-  worker.on('message', (msg: { type: string; png?: Buffer; tick?: number; elapsed?: number; message?: string }) => {
-    if (msg.type === 'error') {
-      console.error('Worker error:', msg.message)
-    }
+  worker.on('message', (msg: { type: string; png?: Buffer; elapsed?: number; message?: string }) => {
+    if (msg.type === 'error') console.error('Worker error:', msg.message)
     if (msg.type === 'frame') {
       latestPng = msg.png!
       latestElapsed = msg.elapsed ?? 0
@@ -90,22 +126,32 @@ async function main() {
     })
   }
 
-  /** Run multiple ticks, then write the latest frame to PDS if it changed */
   async function tickBatchAndWrite() {
-    // Run multiple game ticks
     for (let i = 0; i < TICKS_PER_WRITE; i++) {
       await tickAndWait()
     }
 
     if (!latestPng) return
 
-    // Skip if frame hasn't changed (same bytes = same content)
+    // Skip unchanged frames
     if (lastFramePng && latestPng.length === lastFramePng.length && latestPng.equals(lastFramePng)) {
-      return // identical frame, don't waste API calls
+      return
     }
 
     lastFramePng = Buffer.from(latestPng)
     frameSeq++
+
+    const entry = getCurrentAgent()
+
+    // Check budget before writing
+    if (entry.pointsUsed >= POINTS_BUDGET) {
+      if (!cycleToNextAgent()) {
+        rateLimited = true
+        return
+      }
+    }
+
+    const { agent, did: serverDid } = getCurrentAgent()
 
     try {
       const blobResponse = await agent.uploadBlob(latestPng, { encoding: 'image/png' })
@@ -121,14 +167,22 @@ async function main() {
           createdAt: new Date().toISOString(),
         },
       })
+
+      getCurrentAgent().pointsUsed += POINTS_PER_WRITE
+
       if (frameSeq <= 3 || frameSeq % 10 === 0) {
-        console.log(`Write ${frameSeq}: ${latestPng.length}b, ${latestElapsed}ms/tick, ${TICKS_PER_WRITE} ticks`)
+        const e = getCurrentAgent()
+        console.log(`Frame ${frameSeq}: ${latestPng.length}b, ${latestElapsed}ms | ${e.account.identifier} ${e.pointsUsed}/${POINTS_BUDGET} pts`)
       }
       rateLimited = false
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       if (message.includes('429') || message.includes('Rate')) {
-        if (!rateLimited) { console.error('Rate limited! Pausing.'); rateLimited = true }
+        console.error(`Rate limited on ${getCurrentAgent().account.identifier}, cycling...`)
+        getCurrentAgent().pointsUsed = POINTS_BUDGET // mark as exhausted
+        if (!cycleToNextAgent()) {
+          rateLimited = true
+        }
       } else {
         console.error('Frame write failed:', message)
       }
@@ -141,6 +195,8 @@ async function main() {
     onEvent: (event) => {
       if (event.kind !== 'commit' || event.commit?.operation !== 'create') return
       if (event.did !== currentPlayerDid) return
+
+      lastInputTime = Date.now()
 
       const record = event.commit.record as { keys?: number[] } | undefined
       if (!record?.keys) return
@@ -162,17 +218,35 @@ async function main() {
     },
   })
 
-  // Game loop: tick at target FPS
   async function gameLoop(signal: AbortSignal) {
-    console.log(`Game loop: ${TICKS_PER_WRITE} ticks per write, ${WRITE_INTERVAL_MS}ms between writes`)
+    console.log(`Game loop: ${TICKS_PER_WRITE} ticks/write, ${WRITE_INTERVAL_MS}ms interval, ${IDLE_TIMEOUT_MS / 1000}s idle timeout`)
+    lastInputTime = Date.now()
 
     while (!signal.aborted) {
+      // Auto-pause on idle
+      if (Date.now() - lastInputTime > IDLE_TIMEOUT_MS) {
+        console.log('Idle timeout -- pausing game loop')
+        // Wait for input to resume
+        while (Date.now() - lastInputTime > IDLE_TIMEOUT_MS && !signal.aborted) {
+          await new Promise((r) => setTimeout(r, 1000))
+        }
+        if (signal.aborted) break
+        console.log('Input received -- resuming game loop')
+      }
+
       const start = Date.now()
       if (!rateLimited) {
         await tickBatchAndWrite()
+      } else {
+        // Try to recover: check if any account has budget
+        if (cycleToNextAgent()) {
+          rateLimited = false
+        } else {
+          await new Promise((r) => setTimeout(r, 5000))
+        }
       }
       const elapsed = Date.now() - start
-      const wait = Math.max(100, WRITE_INTERVAL_MS - elapsed)
+      const wait = Math.max(50, WRITE_INTERVAL_MS - elapsed)
       await new Promise((r) => setTimeout(r, wait))
     }
     console.log('Game loop stopped')
@@ -185,24 +259,22 @@ async function main() {
     frameSeq = 0
     rateLimited = false
     previousKeyState = 0
-    console.log(`Session started for: ${playerDid}`)
+    lastFramePng = null
+    lastInputTime = Date.now()
+    console.log(`Session started for: ${playerDid} (bot: ${getCurrentAgent().account.identifier})`)
 
-    // Update Jetstream to filter for this player
     jetstream.setWantedDids([playerDid])
 
     gameLoopAbort = new AbortController()
-    gameLoopRunning = true
     gameLoop(gameLoopAbort.signal)
   }
 
   function stopSession() {
     if (gameLoopAbort) gameLoopAbort.abort()
-    gameLoopRunning = false
     currentPlayerDid = null
     console.log('Session stopped')
   }
 
-  // Start Jetstream (always listening, filters by player DID)
   jetstream.connect()
 
   // HTTP API
@@ -221,7 +293,7 @@ async function main() {
       if (!playerDid) { res.writeHead(400); res.end('playerDid required'); return }
       startSession(playerDid)
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ status: 'started', serverDid }))
+      res.end(JSON.stringify({ status: 'started', serverDid: getActiveServerDid() }))
       return
     }
 
@@ -233,8 +305,23 @@ async function main() {
     }
 
     if (url.pathname === '/api/health') {
+      const e = getCurrentAgent()
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ status: 'ok', serverDid, currentPlayer: currentPlayerDid, frameSeq, rateLimited, gameLoopRunning }))
+      res.end(JSON.stringify({
+        status: 'ok',
+        serverDid: getActiveServerDid(),
+        currentBot: e.account.identifier,
+        pointsUsed: e.pointsUsed,
+        pointsBudget: POINTS_BUDGET,
+        currentPlayer: currentPlayerDid,
+        frameSeq,
+        rateLimited,
+        accounts: agents.map(a => ({
+          identifier: a.account.identifier,
+          pointsUsed: a.pointsUsed,
+          exhausted: a.pointsUsed >= POINTS_BUDGET,
+        })),
+      }))
       return
     }
 

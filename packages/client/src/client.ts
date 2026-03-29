@@ -23,7 +23,8 @@ async function main() {
 
   console.log('Doom AT Protocol -- Player Client (Jetstream)')
   console.log(`  Public URL: ${config.PUBLIC_URL}`)
-  console.log(`  Server DID: ${config.SERVER_DID}`)
+  const serverDids = config.SERVER_DIDS.split(',').map(d => d.trim())
+  console.log(`  Server DIDs: ${serverDids.join(', ')}`)
   console.log(`  Port: ${config.CLIENT_PORT}`)
   console.log()
 
@@ -188,7 +189,7 @@ async function main() {
 
   const jetstream = createJetstreamClient({
     collections: [LEXICON_IDS.DoomFrame],
-    wantedDids: [config.SERVER_DID],
+    wantedDids: serverDids,
     onEvent: async (event) => {
       if (event.kind !== 'commit' || event.commit?.operation !== 'create') return
       if (event.commit.collection !== LEXICON_IDS.DoomFrame) return
@@ -205,7 +206,7 @@ async function main() {
 
       try {
         const blobResponse = await pdsAgent.com.atproto.sync.getBlob({
-          did: config.SERVER_DID,
+          did: event.did,
           cid: blobCid,
         })
 
@@ -269,7 +270,7 @@ async function main() {
           collection: LEXICON_IDS.DoomInput,
           record: {
             $type: LEXICON_IDS.DoomInput,
-            session: { uri: `at://${config.SERVER_DID}/${LEXICON_IDS.DoomSession}/current`, cid: 'placeholder' },
+            session: { uri: `at://${serverDids[0]}/${LEXICON_IDS.DoomSession}/current`, cid: 'placeholder' },
             seq,
             keys,
             createdAt: new Date().toISOString(),
