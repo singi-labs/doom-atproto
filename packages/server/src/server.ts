@@ -123,13 +123,61 @@ async function main() {
     })
   }
 
-  /** Game loop: tick at target FPS, only while a player is connected */
+  // Track which input records we've already processed
+  let lastInputCursor = ''
+  const publicAgent = new AtpAgent({ service: 'https://bsky.social' })
+
+  /** Poll player's PDS for new input records, feed keys to engine */
+  async function pollAndApplyInputs() {
+    if (!currentPlayerDid) return
+
+    try {
+      const response = await publicAgent.com.atproto.repo.listRecords({
+        repo: currentPlayerDid,
+        collection: LEXICON_IDS.DoomInput,
+        limit: 10,
+        reverse: true,
+      })
+
+      // Process newest-first, but apply in chronological order
+      const newRecords = response.data.records
+        .reverse()
+        .filter(r => r.uri > lastInputCursor)
+
+      for (const record of newRecords) {
+        lastInputCursor = record.uri
+        const inputData = record.value as { keys: number[] }
+
+        for (const keyBitmask of inputData.keys) {
+          // Send key-down for pressed keys, key-up for released
+          for (let bit = 0; bit < 20; bit++) {
+            const pressed = (keyBitmask >> bit) & 1
+            const doomKey = bitmaskToDoomKey(bit)
+            if (doomKey !== null && pressed) {
+              worker.postMessage({ type: 'key', pressed: true, key: doomKey })
+            }
+          }
+        }
+      }
+
+      if (newRecords.length > 0 && frameSeq <= 5) {
+        console.log(`Applied ${newRecords.length} input records`)
+      }
+    } catch {
+      // Player may not have input records yet
+    }
+  }
+
+  /** Game loop: poll inputs, tick, write frame */
   async function gameLoop(signal: AbortSignal) {
     const interval = 1000 / FRAMES_PER_SECOND
     console.log(`Game loop running at ${FRAMES_PER_SECOND} fps`)
 
     while (!signal.aborted) {
       const start = Date.now()
+
+      // Poll for player inputs before ticking
+      await pollAndApplyInputs()
 
       if (!rateLimited) {
         await tickAndWait()

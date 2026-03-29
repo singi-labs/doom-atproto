@@ -119,6 +119,9 @@
     Latency: <span id="latency">--</span>ms |
     Tick: <span id="tick">0</span>
   </div>
+  <div id="controls" style="display: none; margin-top: 0.75rem; font-size: 0.75rem; color: #9ca3af; text-align: center; line-height: 1.6;">
+    Arrow keys: move | Ctrl: fire | Space: open/use | Enter: menu select | Esc: menu
+  </div>
 
   <footer style="position: fixed; bottom: 1rem; font-size: 0.75rem; color: #9ca3af;">
     Built by <a href="https://singi.dev" style="color: #9ca3af; text-decoration: underline;">Singi Labs</a>
@@ -201,6 +204,7 @@
       canvas.style.display = 'block'
       statsDiv.style.display = 'block'
       playerInfo.style.display = 'block'
+      document.getElementById('controls').style.display = 'block'
       document.getElementById('player-handle').textContent = handle
 
       ctx.fillStyle = '#1a1a1a'
