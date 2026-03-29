@@ -11,8 +11,7 @@ services:
     restart: unless-stopped
     environment:
       - ATP_SERVICE=${ATP_SERVICE:-https://bsky.social}
-      - ATP_IDENTIFIER=${ATP_IDENTIFIER}
-      - ATP_PASSWORD=${ATP_PASSWORD}
+      - ATP_ACCOUNTS=${ATP_ACCOUNTS}
       - WAD_PATH=/app/doom1.wad
       - DEBUG_PORT=8666
     volumes:
@@ -32,7 +31,7 @@ services:
     restart: unless-stopped
     environment:
       - PUBLIC_URL=${PUBLIC_URL:-https://doom.singi.dev}
-      - SERVER_DID=${SERVER_DID}
+      - SERVER_DIDS=${SERVER_DIDS}
       - CLIENT_PORT=8667
     networks:
       - barazo_frontend
