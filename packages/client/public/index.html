@@ -263,7 +263,8 @@
       let sendTimer = null
 
       function sendKeys() {
-        if (ws.readyState === WebSocket.OPEN) {
+        if (ws.readyState === WebSocket.OPEN && currentKeys !== lastSentKeys) {
+          lastSentKeys = currentKeys
           ws.send(JSON.stringify({ type: 'key', keys: currentKeys, seq: inputSeq++ }))
         }
       }
@@ -288,6 +289,9 @@
           sendKeys()
         }
       })
+
+      // Only send non-zero key states (don't flood with zeros)
+      let lastSentKeys = -1
 
       // Only send key updates when there's actual activity
       let lastActivity = Date.now()

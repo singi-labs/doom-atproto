@@ -205,6 +205,8 @@ async function main() {
     currentPlayerDid = playerDid
     frameSeq = 0
     rateLimited = false
+    lastInputCursor = '' // reset so we read fresh inputs
+    previousKeyState = 0
     console.log(`Game session started for player: ${playerDid}`)
 
     const controller = new AbortController()
