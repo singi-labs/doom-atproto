@@ -122,7 +122,7 @@ async function main() {
 
           // Notify game server
           try {
-            await fetch(`http://doom-server:8666/api/start`, {
+            await fetch(`http://localhost:8666/api/start`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ playerDid: did }),
