@@ -16,10 +16,11 @@ import { createJetstreamClient } from './jetstream.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-// Self-hosted PDS: no rate limits.
-// Balance between game speed and engine stability.
-const TICKS_PER_WRITE = 3
-const WRITE_INTERVAL_MS = 150 // ~7 writes/sec, ~20 game ticks/sec
+// Tuning: balance game speed vs WASM engine stability.
+// The engine crashes with "memory access out of bounds" when ticked too rapidly.
+// Safe config: 5 ticks batched, 500ms interval = 10 game ticks/sec, ~2 writes/sec.
+const TICKS_PER_WRITE = 5
+const WRITE_INTERVAL_MS = 500
 const IDLE_TIMEOUT_MS = 60_000 // 1 minute
 // Point budget only matters for bsky.social accounts, not self-hosted PDS.
 // Keep tracking for monitoring but set high.
