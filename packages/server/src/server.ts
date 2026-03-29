@@ -16,12 +16,13 @@ import { createJetstreamClient } from './jetstream.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-const TICKS_PER_WRITE = 5
-const WRITE_INTERVAL_MS = 1000
+// Self-hosted PDS: no rate limits. Push as fast as the PDS can handle.
+const TICKS_PER_WRITE = 3
+const WRITE_INTERVAL_MS = 200 // 5 writes/sec = ~15 game ticks/sec
 const IDLE_TIMEOUT_MS = 60_000 // 1 minute
-// Budget: 4000 points per account before cycling (leaves 1000 buffer from 5000 hourly limit)
-// Each frame write = 3 points (1 create). uploadBlob doesn't count as a create.
-const POINTS_BUDGET = 4000
+// Point budget only matters for bsky.social accounts, not self-hosted PDS.
+// Keep tracking for monitoring but set high.
+const POINTS_BUDGET = 999_999
 const POINTS_PER_WRITE = 3
 
 async function main() {
