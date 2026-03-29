@@ -14,7 +14,10 @@ import { LEXICON_IDS } from '@singi-labs/doom-lexicons'
 import { createJetstreamClient } from './jetstream.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const FRAMES_PER_SECOND = 2
+// 1 frame every 2 seconds = 2 API calls per frame = 1 call/sec
+// Hourly: 1800 creates * 3 points = 5400 points (just over 5000 limit)
+// So cap sessions to ~50 min max. Good enough for a demo.
+const FRAME_INTERVAL_MS = 2000
 
 async function main() {
   const config = loadConfig()
@@ -141,8 +144,8 @@ async function main() {
 
   // Game loop: tick at target FPS
   async function gameLoop(signal: AbortSignal) {
-    const interval = 1000 / FRAMES_PER_SECOND
-    console.log(`Game loop running at ${FRAMES_PER_SECOND} fps`)
+    const interval = FRAME_INTERVAL_MS
+    console.log(`Game loop running (1 frame every ${interval}ms)`)
 
     while (!signal.aborted) {
       const start = Date.now()
