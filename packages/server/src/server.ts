@@ -176,16 +176,16 @@ async function main() {
         console.log(`Frame ${frameSeq}: ${latestPng.length}b, ${latestElapsed}ms | ${e.account.identifier} ${e.pointsUsed}/${POINTS_BUDGET} pts`)
       }
       rateLimited = false
-    } catch (err) {
+    } catch (err: unknown) {
+      const status = (err as { status?: number }).status
       const message = err instanceof Error ? err.message : String(err)
-      if (message.includes('429') || message.includes('Rate')) {
+      console.error(`Frame write error (status ${status}): ${message}`)
+      if (status === 429) {
         console.error(`Rate limited on ${getCurrentAgent().account.identifier}, cycling...`)
-        getCurrentAgent().pointsUsed = POINTS_BUDGET // mark as exhausted
+        getCurrentAgent().pointsUsed = POINTS_BUDGET
         if (!cycleToNextAgent()) {
           rateLimited = true
         }
-      } else {
-        console.error('Frame write failed:', message)
       }
     }
   }
