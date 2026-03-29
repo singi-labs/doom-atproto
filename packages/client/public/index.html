@@ -96,12 +96,14 @@
   <h1>DOOM over AT Protocol</h1>
 
   <div id="login">
-    <p>Every keystroke writes a record to your PDS.<br>
-    Every frame is read from the game server's PDS.<br>
+    <p>Your keyboard input is written as AT Protocol records to your PDS.<br>
+    A game server reads those records, runs a Doom tick, and writes<br>
+    the rendered frame back to its own PDS. Your browser reads it.<br>
     Full federation. No shortcuts.</p>
-    <p style="color: #9ca3af; font-size: 0.75rem; margin-top: -0.5rem;">
-    Every input and frame travels through the AT Protocol network.<br>
-    Framerate depends on PDS round-trip latency.</p>
+    <p style="color: #f59e0b; font-size: 0.75rem; margin-top: -0.5rem; line-height: 1.6;">
+    This writes ~2 records/sec to your PDS while playing.<br>
+    A 30-min session creates ~360 records (1,080 rate limit points).<br>
+    Consider using a throwaway account to avoid impacting your main PDS.</p>
     <form id="login-form">
       <input type="text" id="handle" placeholder="your-handle.bsky.social" autocomplete="username" />
       <button type="submit">Login</button>
