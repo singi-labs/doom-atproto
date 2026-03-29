@@ -212,7 +212,8 @@ async function main() {
   const clients = new Map<WebSocket, { sessionId?: string; did?: string }>()
 
   // Poll server's PDS for frame records
-  const serverAgent = new Agent({ service: 'https://public.api.bsky.app' })
+  // Use PDS directly for listRecords + getBlob (AppView doesn't support these)
+  const serverAgent = new Agent({ service: 'https://bsky.social' })
   let lastFrameCursor = ''
   let pollTimer: ReturnType<typeof setInterval> | null = null
 
