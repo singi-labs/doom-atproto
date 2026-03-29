@@ -1,14 +1,8 @@
 /**
- * Doom over AT Protocol -- Player Client
+ * Doom over AT Protocol -- Player Client (Jetstream)
  *
- * Serves the browser UI, handles OAuth login, writes input records
- * to the player's PDS, reads frame records from the server's PDS.
- *
- * For Phase 3 (polling), the game loop is:
- * 1. Browser sends key events via WebSocket
- * 2. Client writes input records to player's PDS
- * 3. Client polls server's PDS for frame records
- * 4. Client streams PNG frames to browser via WebSocket
+ * Serves browser UI, handles OAuth login, writes input records
+ * to player's PDS, receives frame records via Jetstream.
  */
 import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
@@ -16,74 +10,69 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer, WebSocket } from 'ws'
 import { Agent } from '@atproto/api'
+import { AtpAgent } from '@atproto/api'
 import { createOAuthClient } from './oauth.js'
 import { loadConfig } from './config.js'
 import { LEXICON_IDS } from '@singi-labs/doom-lexicons'
+import { createJetstreamClient } from './jetstream.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 async function main() {
   const config = loadConfig()
 
-  console.log('Doom AT Protocol -- Player Client')
+  console.log('Doom AT Protocol -- Player Client (Jetstream)')
   console.log(`  Public URL: ${config.PUBLIC_URL}`)
   console.log(`  Server DID: ${config.SERVER_DID}`)
   console.log(`  Port: ${config.CLIENT_PORT}`)
   console.log()
 
   // Initialize OAuth client
-  console.log('Initializing OAuth client...')
   const oauthClient = await createOAuthClient({ publicUrl: config.PUBLIC_URL })
   console.log('OAuth client ready')
 
-  // Track player sessions: sessionId -> { did, handle, agent }
+  // Track player sessions
   const playerSessions = new Map<string, { did: string; handle: string; agent: Agent }>()
 
+  // PDS agent for fetching blobs (no auth needed for public blobs)
+  const pdsAgent = new AtpAgent({ service: 'https://bsky.social' })
+
   // Read browser HTML
-  const clientHtml = await readFile(
-    join(__dirname, '..', 'public', 'index.html'),
-    'utf-8',
-  )
+  const clientHtml = await readFile(join(__dirname, '..', 'public', 'index.html'), 'utf-8')
 
   // HTTP server
   const httpServer = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`)
 
     try {
-      // OAuth client metadata (AT Protocol requires this at the client_id URL)
       if (url.pathname === '/oauth/client-metadata.json') {
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(oauthClient.clientMetadata))
         return
       }
 
-      // JWKS endpoint
       if (url.pathname === '/oauth/jwks.json') {
-        const jwks = oauthClient.jwks
         res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify(jwks))
+        res.end(JSON.stringify(oauthClient.jwks))
         return
       }
 
-      // OAuth login: POST with handle
       if (url.pathname === '/oauth/login' && req.method === 'POST') {
         let body = ''
         for await (const chunk of req) body += chunk
         const { handle } = JSON.parse(body)
-
         if (!handle || typeof handle !== 'string') {
           res.writeHead(400, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ error: 'Handle is required' }))
           return
         }
 
-        // Normalize handle: strip leading @, append .bsky.social if no domain
         let normalizedHandle = handle.trim().replace(/^@/, '')
         if (!normalizedHandle.includes('.')) {
           normalizedHandle += '.bsky.social'
         }
 
-        // Try granular scope first (minimal permissions), fall back to broad
+        // Try granular scope first, fall back to transition:generic
         try {
           const authUrl = await oauthClient.authorize(normalizedHandle, {
             scope: 'atproto repo:dev.singi.doom.input',
@@ -107,10 +96,8 @@ async function main() {
         return
       }
 
-      // OAuth callback
       if (url.pathname === '/oauth/callback') {
         const params = url.searchParams
-
         if (!params.get('code') || !params.get('state')) {
           res.writeHead(400, { 'Content-Type': 'text/plain' })
           res.end('Missing code or state')
@@ -121,25 +108,20 @@ async function main() {
           const { session } = await oauthClient.callback(params)
           const did = session.did
           const sessionId = crypto.randomUUID()
-
-          // Create an authenticated agent for this player
           const agent = new Agent(session)
 
-          // Resolve handle
           let handle: string = did
           try {
             const publicAgent = new Agent('https://public.api.bsky.app')
             const profile = await publicAgent.getProfile({ actor: did as `did:plc:${string}` })
             handle = profile.data.handle
-          } catch {
-            console.warn('Could not resolve handle for', did)
-          }
+          } catch { /* use DID as fallback */ }
 
           playerSessions.set(sessionId, { did, handle, agent })
 
-          // Notify game server about the new player
+          // Notify game server
           try {
-            await fetch(`http://doom-server:${8666}/api/start`, {
+            await fetch(`http://doom-server:8666/api/start`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ playerDid: did }),
@@ -150,7 +132,6 @@ async function main() {
 
           console.log(`Player authenticated: ${handle} (${did})`)
 
-          // Redirect to game with session cookie
           res.writeHead(302, {
             'Set-Cookie': `doom_session=${sessionId}; Path=/; HttpOnly; SameSite=Lax${config.PUBLIC_URL.startsWith('https') ? '; Secure' : ''}`,
             Location: '/',
@@ -164,28 +145,22 @@ async function main() {
         return
       }
 
-      // Session info API
       if (url.pathname === '/api/session') {
         const cookie = req.headers.cookie ?? ''
         const sessionId = cookie.match(/doom_session=([^;]+)/)?.[1]
         const session = sessionId ? playerSessions.get(sessionId) : undefined
-
         res.writeHead(200, { 'Content-Type': 'application/json' })
-        if (session) {
-          res.end(JSON.stringify({ authenticated: true, did: session.did, handle: session.handle }))
-        } else {
-          res.end(JSON.stringify({ authenticated: false }))
-        }
+        res.end(JSON.stringify(session
+          ? { authenticated: true, did: session.did, handle: session.handle }
+          : { authenticated: false }
+        ))
         return
       }
 
-      // Logout
       if (url.pathname === '/oauth/logout' && req.method === 'POST') {
         const cookie = req.headers.cookie ?? ''
         const sessionId = cookie.match(/doom_session=([^;]+)/)?.[1]
-        if (sessionId) {
-          playerSessions.delete(sessionId)
-        }
+        if (sessionId) playerSessions.delete(sessionId)
         res.writeHead(200, {
           'Content-Type': 'application/json',
           'Set-Cookie': 'doom_session=; Path=/; Max-Age=0',
@@ -194,110 +169,67 @@ async function main() {
         return
       }
 
-      // WebSocket upgrade is handled by wss
       if (url.pathname === '/ws') return
 
-      // Serve the game page
       res.writeHead(200, { 'Content-Type': 'text/html' })
       res.end(clientHtml)
     } catch (err) {
       console.error('Request error:', err)
-      res.writeHead(500, { 'Content-Type': 'text/plain' })
-      res.end('Internal server error')
+      res.writeHead(500); res.end('Internal server error')
     }
   })
 
-  // WebSocket server for browser communication
+  // WebSocket for browser communication
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' })
-  const clients = new Map<WebSocket, { sessionId?: string; did?: string }>()
+  const clients = new Map<WebSocket, { did: string }>()
 
-  // Poll server's PDS for frame records
-  // Use PDS directly for listRecords + getBlob (AppView doesn't support these)
-  const serverAgent = new Agent({ service: 'https://bsky.social' })
-  let lastFrameCursor = ''
-  let pollTimer: ReturnType<typeof setInterval> | null = null
+  // Jetstream: subscribe to frame records from the game server
+  let frameCount = 0
 
-  let pollCount = 0
+  const jetstream = createJetstreamClient({
+    collections: [LEXICON_IDS.DoomFrame],
+    wantedDids: [config.SERVER_DID],
+    onEvent: async (event) => {
+      if (event.kind !== 'commit' || event.commit?.operation !== 'create') return
+      if (event.commit.collection !== LEXICON_IDS.DoomFrame) return
 
-  async function pollFrames() {
-    try {
-      const response = await serverAgent.com.atproto.repo.listRecords({
-        repo: config.SERVER_DID,
-        collection: LEXICON_IDS.DoomFrame,
-        limit: 5,
-      })
+      const cid = event.commit.cid
+      if (!cid) return
 
-      pollCount++
-      if (pollCount <= 3) {
-        console.log(`Poll ${pollCount}: ${response.data.records.length} records, cursor: ${lastFrameCursor.slice(-20)}`)
-      }
+      try {
+        // Fetch the frame blob from the PDS
+        const blobResponse = await pdsAgent.com.atproto.sync.getBlob({
+          did: config.SERVER_DID,
+          cid,
+        })
 
-      // Records are newest-first; just take the newest one we haven't seen
-      for (const record of response.data.records) {
-        if (record.uri === lastFrameCursor) break // already seen this and older
-        lastFrameCursor = record.uri
+        const png = Buffer.from(blobResponse.data as unknown as ArrayBuffer)
+        frameCount++
 
-        const frameData = record.value as {
-          seq: number
-          frames: Array<{ ref: { toString(): string }; mimeType: string }>
-          createdAt: string
+        if (frameCount <= 3 || frameCount % 20 === 0) {
+          console.log(`Frame ${frameCount}: ${png.length}b via Jetstream`)
         }
 
-        // Download each frame blob
-        for (const frame of frameData.frames) {
-          try {
-            // SDK deserializes blob ref as a CID object -- use toString()
-            const cid = frame.ref.toString()
-            if (pollCount <= 3) {
-              console.log(`  Fetching blob: ${cid}`)
-            }
+        const record = event.commit.record as { seq?: number; createdAt?: string } | undefined
 
-            const blobResponse = await serverAgent.com.atproto.sync.getBlob({
-              did: config.SERVER_DID,
-              cid,
-            })
-
-            const png = Buffer.from(blobResponse.data as unknown as ArrayBuffer)
-
-            if (pollCount <= 3) {
-              console.log(`  Got PNG: ${png.length} bytes`)
-            }
-
-            // Send to all connected clients
-            for (const [ws] of clients) {
-              if (ws.readyState === WebSocket.OPEN) {
-                ws.send(png)
-                ws.send(JSON.stringify({
-                  tick: frameData.seq,
-                  latency: Date.now() - new Date(frameData.createdAt).getTime(),
-                }))
-              }
-            }
-          } catch (err) {
-            console.error('Failed to fetch frame blob:', err instanceof Error ? err.message : err)
+        // Send to all connected browser clients
+        for (const [ws] of clients) {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(png)
+            ws.send(JSON.stringify({
+              tick: record?.seq ?? frameCount,
+              latency: record?.createdAt ? Date.now() - new Date(record.createdAt).getTime() : 0,
+            }))
           }
         }
+      } catch (err) {
+        console.error('Failed to fetch frame blob:', err instanceof Error ? err.message : err)
       }
-    } catch (err) {
-      if (pollCount <= 3) {
-        console.error('Poll error:', err instanceof Error ? err.message : err)
-      }
-    }
-  }
+    },
+  })
 
-  function startPolling() {
-    if (pollTimer) return
-    console.log('Starting frame polling')
-    pollTimer = setInterval(pollFrames, 200) // Poll every 200ms
-  }
-
-  function stopPolling() {
-    if (pollTimer && clients.size === 0) {
-      clearInterval(pollTimer)
-      pollTimer = null
-      console.log('Stopped frame polling')
-    }
-  }
+  // Start Jetstream immediately (listens for server's frame records)
+  jetstream.connect()
 
   wss.on('connection', (ws, req) => {
     const cookie = req.headers.cookie ?? ''
@@ -310,23 +242,18 @@ async function main() {
       return
     }
 
-    console.log(`WebSocket connected: ${session.did}`)
-    clients.set(ws, { sessionId, did: session.did })
-    startPolling()
+    console.log(`Browser connected: ${session.handle}`)
+    clients.set(ws, { did: session.did })
 
-    // Batch input writes: collect key states, write 1 record per second max
+    // Input handling: batch key states, write to PDS
     const playerAgent = session.agent
     const playerDid = session.did
     let pendingKeys: number[] = []
     let inputSeq = 0
-    let writeTimer: ReturnType<typeof setInterval> | null = null
+    let inputPaused = false
 
     async function flushInputs() {
       if (pendingKeys.length === 0) return
-      const nonZero = pendingKeys.filter(k => k !== 0)
-      if (nonZero.length > 0) {
-        console.log(`Flushing ${pendingKeys.length} keys (${nonZero.length} non-zero): [${pendingKeys.join(',')}]`)
-      }
       const keys = pendingKeys.slice()
       pendingKeys = []
       const seq = inputSeq
@@ -338,57 +265,45 @@ async function main() {
           collection: LEXICON_IDS.DoomInput,
           record: {
             $type: LEXICON_IDS.DoomInput,
-            session: {
-              uri: `at://${config.SERVER_DID}/${LEXICON_IDS.DoomSession}/current`,
-              cid: 'placeholder',
-            },
+            session: { uri: `at://${config.SERVER_DID}/${LEXICON_IDS.DoomSession}/current`, cid: 'placeholder' },
             seq,
             keys,
             createdAt: new Date().toISOString(),
           },
         })
       } catch (err) {
-        console.error('Failed to write input record:', err instanceof Error ? err.message : err)
+        console.error('Input write failed:', err instanceof Error ? err.message : err)
       }
     }
 
-    // Flush batched inputs every 500ms (2 writes/sec max)
-    let inputPaused = false
-    writeTimer = setInterval(() => {
+    const writeTimer = setInterval(() => {
       if (!inputPaused) flushInputs()
     }, 500)
 
-    let wsMessageCount = 0
     ws.on('message', (data) => {
       const msg = JSON.parse(data.toString())
-      wsMessageCount++
-      if (wsMessageCount <= 5) {
-        console.log(`WS msg #${wsMessageCount}: ${JSON.stringify(msg)}`)
-      }
       if (msg.type === 'key') {
         pendingKeys.push(msg.keys ?? 0)
       } else if (msg.type === 'pause') {
         inputPaused = true
         pendingKeys = []
-        console.log(`Player ${session.handle} paused (idle)`)
+        console.log(`${session.handle} paused`)
       } else if (msg.type === 'resume') {
         inputPaused = false
-        console.log(`Player ${session.handle} resumed`)
+        console.log(`${session.handle} resumed`)
       }
     })
 
     ws.on('close', () => {
-      console.log(`WebSocket disconnected: ${session.did}`)
-      if (writeTimer) clearInterval(writeTimer)
+      clearInterval(writeTimer)
       clients.delete(ws)
-      stopPolling()
+      console.log(`Browser disconnected: ${session.handle}`)
     })
   })
 
   httpServer.listen(config.CLIENT_PORT, () => {
     console.log()
-    console.log(`Open ${config.PUBLIC_URL} in your browser`)
-    console.log('Press Ctrl+C to stop')
+    console.log(`Open ${config.PUBLIC_URL}`)
   })
 }
 
