@@ -35,8 +35,9 @@ async function main() {
   // Track player sessions
   const playerSessions = new Map<string, { did: string; handle: string; agent: Agent }>()
 
-  // PDS agent for fetching blobs (no auth needed for public blobs)
-  const pdsAgent = new AtpAgent({ service: 'https://bsky.social' })
+  // PDS agent for fetching blobs from the server bot's PDS
+  // Use localhost since we're on the same machine as the PDS
+  const pdsAgent = new AtpAgent({ service: 'http://localhost:3000' })
 
   // Read browser HTML
   const clientHtml = await readFile(join(__dirname, '..', 'public', 'index.html'), 'utf-8')
