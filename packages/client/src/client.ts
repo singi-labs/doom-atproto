@@ -323,6 +323,10 @@ async function main() {
 
     async function flushInputs() {
       if (pendingKeys.length === 0) return
+      const nonZero = pendingKeys.filter(k => k !== 0)
+      if (nonZero.length > 0) {
+        console.log(`Flushing ${pendingKeys.length} keys (${nonZero.length} non-zero): [${pendingKeys.join(',')}]`)
+      }
       const keys = pendingKeys.slice()
       pendingKeys = []
       const seq = inputSeq
@@ -354,8 +358,13 @@ async function main() {
       if (!inputPaused) flushInputs()
     }, 500)
 
+    let wsMessageCount = 0
     ws.on('message', (data) => {
       const msg = JSON.parse(data.toString())
+      wsMessageCount++
+      if (wsMessageCount <= 5) {
+        console.log(`WS msg #${wsMessageCount}: ${JSON.stringify(msg)}`)
+      }
       if (msg.type === 'key') {
         pendingKeys.push(msg.keys ?? 0)
       } else if (msg.type === 'pause') {
