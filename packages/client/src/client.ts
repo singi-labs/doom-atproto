@@ -187,6 +187,8 @@ async function main() {
 
   // Jetstream: subscribe to frame records from the game server
   let frameCount = 0
+  let latestFramePng: Buffer | null = null
+  let latestFrameMeta: { tick: number; latency: number } | null = null
 
   const jetstream = createJetstreamClient({
     collections: [LEXICON_IDS.DoomFrame],
@@ -213,6 +215,11 @@ async function main() {
 
         const png = Buffer.from(blobResponse.data as unknown as ArrayBuffer)
         frameCount++
+
+        // Cache latest frame for new browser connections
+        const meta = { tick: record?.seq ?? frameCount, latency: record?.createdAt ? Date.now() - new Date(record.createdAt).getTime() : 0 }
+        latestFramePng = png
+        latestFrameMeta = meta
 
         if (frameCount <= 3 || frameCount % 20 === 0) {
           console.log(`Frame ${frameCount}: ${png.length}b via Jetstream (blob: ${blobCid.slice(0, 20)}...)`)
@@ -250,6 +257,12 @@ async function main() {
 
     console.log(`Browser connected: ${session.handle}`)
     clients.set(ws, { did: session.did })
+
+    // Send the latest cached frame immediately so the browser doesn't wait
+    if (latestFramePng && latestFrameMeta) {
+      ws.send(latestFramePng)
+      ws.send(JSON.stringify(latestFrameMeta))
+    }
 
     // Input handling: batch key states, write to PDS
     const playerAgent = session.agent
