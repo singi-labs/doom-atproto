@@ -62,7 +62,7 @@ export async function createOAuthClient(config: OAuthConfig): Promise<NodeOAuthC
       client_uri: config.publicUrl,
       response_types: ['code'],
       grant_types: ['authorization_code', 'refresh_token'],
-      scope: 'atproto',
+      scope: 'atproto transition:generic',
       redirect_uris: [`${config.publicUrl}/oauth/callback`],
       dpop_bound_access_tokens: true,
       token_endpoint_auth_method: 'private_key_jwt',
