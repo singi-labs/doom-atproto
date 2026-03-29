@@ -230,24 +230,47 @@
 
       let frameCount = 0
       let lastFpsTime = performance.now()
+      const MIN_FRAME_MS = 1000 / 15 // cap at 15fps to smooth jitter
+      let lastFrameTime = 0
+      let pendingFrame = null
+
+      function renderFrame(data) {
+        const now = performance.now()
+        const elapsed = now - lastFrameTime
+        if (elapsed < MIN_FRAME_MS) {
+          // Too soon -- buffer this frame for later
+          pendingFrame = data
+          if (!pendingFrameTimer) {
+            pendingFrameTimer = setTimeout(() => {
+              pendingFrameTimer = null
+              if (pendingFrame) { renderFrame(pendingFrame); pendingFrame = null }
+            }, MIN_FRAME_MS - elapsed)
+          }
+          return
+        }
+        lastFrameTime = now
+        pendingFrame = null
+
+        const blob = new Blob([data], { type: 'image/png' })
+        const url = URL.createObjectURL(blob)
+        const img = new Image()
+        img.onload = () => {
+          ctx.drawImage(img, 0, 0)
+          URL.revokeObjectURL(url)
+          frameCount++
+          if (now - lastFpsTime >= 1000) {
+            document.getElementById('fps').textContent = frameCount
+            frameCount = 0
+            lastFpsTime = now
+          }
+        }
+        img.src = url
+      }
+      let pendingFrameTimer = null
 
       ws.onmessage = (event) => {
         if (event.data instanceof ArrayBuffer) {
-          const blob = new Blob([event.data], { type: 'image/png' })
-          const url = URL.createObjectURL(blob)
-          const img = new Image()
-          img.onload = () => {
-            ctx.drawImage(img, 0, 0)
-            URL.revokeObjectURL(url)
-            frameCount++
-            const now = performance.now()
-            if (now - lastFpsTime >= 1000) {
-              document.getElementById('fps').textContent = frameCount
-              frameCount = 0
-              lastFpsTime = now
-            }
-          }
-          img.src = url
+          renderFrame(event.data)
         } else {
           const data = JSON.parse(event.data)
           if (data.type === 'error') {
