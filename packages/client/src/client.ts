@@ -81,8 +81,9 @@ async function main() {
           })
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ redirectUrl: authUrl.toString() }))
-        } catch {
-          console.log('Granular scope rejected, falling back to transition:generic')
+        } catch (granularErr) {
+          console.log('Granular scope rejected:', granularErr instanceof Error ? granularErr.message : granularErr)
+          console.log('Falling back to transition:generic')
           try {
             const authUrl = await oauthClient.authorize(normalizedHandle, {
               scope: 'atproto transition:generic',
