@@ -133,27 +133,32 @@ async function main() {
     if (!currentPlayerDid) return
 
     try {
+      // listRecords returns newest-first by default (TIDs are reverse-chronological)
       const response = await publicAgent.com.atproto.repo.listRecords({
         repo: currentPlayerDid,
         collection: LEXICON_IDS.DoomInput,
-        limit: 10,
-        reverse: true,
+        limit: 5,
       })
 
-      const newRecords = response.data.records
-        .reverse()
-        .filter(r => r.uri > lastInputCursor)
+      const records = response.data.records
+      if (records.length === 0) return
 
-      for (const record of newRecords) {
-        lastInputCursor = record.uri
+      // Check if we have new records by comparing the newest URI
+      const newestUri = records[0]!.uri
+      if (newestUri === lastInputCursor) return
+      lastInputCursor = newestUri
+
+      // Process all keys from newest records (they're in newest-first order,
+      // so reverse to get chronological)
+      for (const record of [...records].reverse()) {
         const inputData = record.value as { keys: number[] }
 
         for (const keyBitmask of inputData.keys) {
-          // Compare with previous state to generate press/release events
           const changed = keyBitmask ^ previousKeyState
+          if (changed === 0) continue
 
           for (let bit = 0; bit < 20; bit++) {
-            if (!((changed >> bit) & 1)) continue // unchanged
+            if (!((changed >> bit) & 1)) continue
 
             const pressed = (keyBitmask >> bit) & 1
             const doomKey = bitmaskToDoomKey(bit)
@@ -166,8 +171,8 @@ async function main() {
         }
       }
 
-      if (newRecords.length > 0 && frameSeq <= 5) {
-        console.log(`Applied ${newRecords.length} input records, keyState: ${previousKeyState}`)
+      if (frameSeq <= 10) {
+        console.log(`Input poll: keyState=${previousKeyState}, newest=${newestUri.split('/').pop()}`)
       }
     } catch {
       // Player may not have input records yet

@@ -225,7 +225,6 @@ async function main() {
         repo: config.SERVER_DID,
         collection: LEXICON_IDS.DoomFrame,
         limit: 5,
-        reverse: true, // newest first
       })
 
       pollCount++
@@ -233,8 +232,9 @@ async function main() {
         console.log(`Poll ${pollCount}: ${response.data.records.length} records, cursor: ${lastFrameCursor.slice(-20)}`)
       }
 
-      for (const record of response.data.records.reverse()) {
-        if (record.uri <= lastFrameCursor) continue
+      // Records are newest-first; just take the newest one we haven't seen
+      for (const record of response.data.records) {
+        if (record.uri === lastFrameCursor) break // already seen this and older
         lastFrameCursor = record.uri
 
         const frameData = record.value as {
