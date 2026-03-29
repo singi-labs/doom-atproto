@@ -17,8 +17,9 @@ import { createJetstreamClient } from './jetstream.js'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 // Self-hosted PDS: no rate limits. Push as fast as PDS + Jetstream can handle.
-const TICKS_PER_WRITE = 2
-const WRITE_INTERVAL_MS = 100 // 10 writes/sec = ~20 game ticks/sec
+// PDS write takes ~10ms average. Jetstream propagation ~50-200ms is the real ceiling.
+const TICKS_PER_WRITE = 1
+const WRITE_INTERVAL_MS = 50 // 20 writes/sec, 1:1 tick-to-frame
 const IDLE_TIMEOUT_MS = 60_000 // 1 minute
 // Point budget only matters for bsky.social accounts, not self-hosted PDS.
 // Keep tracking for monitoring but set high.
