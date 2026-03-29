@@ -125,6 +125,7 @@ async function main() {
 
   // Track which input records we've already processed
   let lastInputCursor = ''
+  let previousKeyState = 0 // track previous bitmask to generate press/release events
   const publicAgent = new AtpAgent({ service: 'https://bsky.social' })
 
   /** Poll player's PDS for new input records, feed keys to engine */
@@ -139,7 +140,6 @@ async function main() {
         reverse: true,
       })
 
-      // Process newest-first, but apply in chronological order
       const newRecords = response.data.records
         .reverse()
         .filter(r => r.uri > lastInputCursor)
@@ -149,19 +149,25 @@ async function main() {
         const inputData = record.value as { keys: number[] }
 
         for (const keyBitmask of inputData.keys) {
-          // Send key-down for pressed keys, key-up for released
+          // Compare with previous state to generate press/release events
+          const changed = keyBitmask ^ previousKeyState
+
           for (let bit = 0; bit < 20; bit++) {
+            if (!((changed >> bit) & 1)) continue // unchanged
+
             const pressed = (keyBitmask >> bit) & 1
             const doomKey = bitmaskToDoomKey(bit)
-            if (doomKey !== null && pressed) {
-              worker.postMessage({ type: 'key', pressed: true, key: doomKey })
+            if (doomKey !== null) {
+              worker.postMessage({ type: 'key', pressed: !!pressed, key: doomKey })
             }
           }
+
+          previousKeyState = keyBitmask
         }
       }
 
       if (newRecords.length > 0 && frameSeq <= 5) {
-        console.log(`Applied ${newRecords.length} input records`)
+        console.log(`Applied ${newRecords.length} input records, keyState: ${previousKeyState}`)
       }
     } catch {
       // Player may not have input records yet
