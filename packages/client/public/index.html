@@ -94,6 +94,7 @@
 </head>
 <body>
   <h1>DOOM over AT Protocol</h1>
+  <img src="/doom.gif" alt="DOOM" style="width: 320px; margin-bottom: 1rem;" id="doom-gif" />
 
   <div id="login">
     <p>Your keyboard input is written as AT Protocol records to your PDS.<br>
@@ -203,6 +204,7 @@
 
     function startGame(handle) {
       loginDiv.style.display = 'none'
+      document.getElementById('doom-gif').style.display = 'none'
       canvas.style.display = 'block'
       statsDiv.style.display = 'block'
       playerInfo.style.display = 'block'

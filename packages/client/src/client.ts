@@ -163,6 +163,14 @@ async function main() {
 
       if (url.pathname === '/ws') return
 
+      // Serve static files from public/
+      if (url.pathname === '/doom.gif') {
+        const gif = await readFile(join(__dirname, '..', 'public', 'doom.gif'))
+        res.writeHead(200, { 'Content-Type': 'image/gif', 'Cache-Control': 'public, max-age=86400' })
+        res.end(gif)
+        return
+      }
+
       res.writeHead(200, { 'Content-Type': 'text/html' })
       res.end(clientHtml)
     } catch (err) {
