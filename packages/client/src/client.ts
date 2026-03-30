@@ -186,70 +186,91 @@ async function main() {
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' })
   const clients = new Map<WebSocket, { did: string }>()
 
-  // Jetstream: subscribe to frame records from the game server
+  // Poll local PDS for frame records (localhost, no Jetstream dependency for frames)
+  // Jetstream is still used for input delivery (player PDS -> server).
+  // Direct PDS polling is faster and doesn't require relay crawling for self-hosted PDS.
   let frameCount = 0
   let latestFramePng: Buffer | null = null
   let latestFrameMeta: { tick: number; latency: number } | null = null
+  let lastFrameUri = ''
+  let framePollTimer: ReturnType<typeof setInterval> | null = null
 
-  const jetstream = createJetstreamClient({
-    collections: [LEXICON_IDS.DoomFrame],
-    wantedDids: serverDids,
-    onEvent: async (event) => {
-      if (event.kind !== 'commit' || event.commit?.operation !== 'create') return
-      if (event.commit.collection !== LEXICON_IDS.DoomFrame) return
+  async function pollFrames() {
+    if (clients.size === 0) return
 
-      // Extract blob CID from the record (not the record CID)
-      const record = event.commit.record as {
-        seq?: number
-        createdAt?: string
-        frames?: Array<{ ref?: { $link?: string } }>
-      } | undefined
+    try {
+      // Get newest frame record from each server DID
+      for (const serverDid of serverDids) {
+        const response = await pdsAgent.com.atproto.repo.listRecords({
+          repo: serverDid,
+          collection: LEXICON_IDS.DoomFrame,
+          limit: 1,
+        })
 
-      const blobCid = record?.frames?.[0]?.ref?.$link
-      if (!blobCid) return
+        const record = response.data.records[0]
+        if (!record || record.uri === lastFrameUri) continue
+        lastFrameUri = record.uri
 
-      // Skip stale frames (older than 10 seconds) -- prevents replaying backlog
-      if (record?.createdAt) {
-        const age = Date.now() - new Date(record.createdAt).getTime()
-        if (age > 10_000) return
-      }
+        const frameData = record.value as {
+          seq?: number
+          createdAt?: string
+          frames?: Array<{ ref: { toString(): string } }>
+        }
 
-      try {
+        // Skip stale frames
+        if (frameData.createdAt) {
+          const age = Date.now() - new Date(frameData.createdAt).getTime()
+          if (age > 10_000) continue
+        }
+
+        const blobCid = frameData.frames?.[0]?.ref?.toString()
+        if (!blobCid) continue
+
         const blobResponse = await pdsAgent.com.atproto.sync.getBlob({
-          did: event.did,
+          did: serverDid,
           cid: blobCid,
         })
 
         const png = Buffer.from(blobResponse.data as unknown as ArrayBuffer)
         frameCount++
 
-        // Cache latest frame for new browser connections
-        const meta = { tick: record?.seq ?? frameCount, latency: record?.createdAt ? Date.now() - new Date(record.createdAt).getTime() : 0 }
+        const meta = {
+          tick: frameData.seq ?? frameCount,
+          latency: frameData.createdAt ? Date.now() - new Date(frameData.createdAt).getTime() : 0,
+        }
         latestFramePng = png
         latestFrameMeta = meta
 
-        if (frameCount <= 3 || frameCount % 20 === 0) {
-          console.log(`Frame ${frameCount}: ${png.length}b via Jetstream (blob: ${blobCid.slice(0, 20)}...)`)
+        if (frameCount <= 3 || frameCount % 50 === 0) {
+          console.log(`Frame ${frameCount}: ${png.length}b, ${meta.latency}ms latency`)
         }
 
-        // Send to all connected browser clients
         for (const [ws] of clients) {
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(png)
-            ws.send(JSON.stringify({
-              tick: record?.seq ?? frameCount,
-              latency: record?.createdAt ? Date.now() - new Date(record.createdAt).getTime() : 0,
-            }))
+            ws.send(JSON.stringify(meta))
           }
         }
-      } catch (err) {
-        console.error('Failed to fetch frame blob:', err instanceof Error ? err.message : err)
       }
-    },
-  })
+    } catch {
+      // PDS may not have records yet
+    }
+  }
 
-  // Start Jetstream immediately (listens for server's frame records)
-  jetstream.connect()
+  function startFramePolling() {
+    if (framePollTimer) return
+    lastFrameUri = '' // reset to get latest
+    framePollTimer = setInterval(pollFrames, 100) // 10 polls/sec on localhost
+    console.log('Frame polling started (localhost PDS)')
+  }
+
+  function stopFramePolling() {
+    if (framePollTimer && clients.size === 0) {
+      clearInterval(framePollTimer)
+      framePollTimer = null
+      console.log('Frame polling stopped')
+    }
+  }
 
   wss.on('connection', (ws, req) => {
     const cookie = req.headers.cookie ?? ''
@@ -264,6 +285,7 @@ async function main() {
 
     console.log(`Browser connected: ${session.handle}`)
     clients.set(ws, { did: session.did })
+    startFramePolling()
 
     // Send the latest cached frame immediately so the browser doesn't wait
     if (latestFramePng && latestFrameMeta) {
@@ -323,6 +345,7 @@ async function main() {
     ws.on('close', () => {
       clearInterval(writeTimer)
       clients.delete(ws)
+      stopFramePolling()
       console.log(`Browser disconnected: ${session.handle}`)
     })
   })
