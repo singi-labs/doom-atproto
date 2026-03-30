@@ -35,8 +35,7 @@ static int s_InitDone = 0;
  * On the first doom_tick() after init, we capture the real time as the base
  * and count ticks from there, so there's no time gap.
  */
-static double s_TimeBase = 0;  /* real time at first tick after init */
-static int s_FirstTick = 1;    /* flag: is this the first tick after init? */
+static uint32_t s_InitEndMs = 0;  /* real time when init completed */
 
 /* ----- DG callbacks ----- */
 
@@ -63,9 +62,10 @@ uint32_t DG_GetTicksMs()
         /* During init, use real time so Doom's startup loop can progress */
         return (uint32_t)emscripten_get_now();
     }
-    /* After init: controlled time based on tick count.
-     * Each tick = 28ms (Doom runs at ~35 ticks/sec). */
-    return (uint32_t)(s_TimeBase + s_TickCount * 28);
+    /* After init: advance time by 28ms per tick from the init baseline.
+     * Use the tick count relative to when init ended, ensuring each
+     * doom_tick() call always advances time enough for TryRunTics. */
+    return s_InitEndMs + (s_TickCount * 28);
 }
 
 int DG_GetKey(int* pressed, unsigned char* doomKey)
@@ -97,19 +97,16 @@ EMSCRIPTEN_KEEPALIVE
 void doom_init(int argc, char** argv)
 {
     doomgeneric_Create(argc, argv);
+    /* Capture the time when init finishes. This becomes the baseline
+     * for the controlled clock. The +28 ensures the first tick
+     * advances time enough for TryRunTics to process. */
+    s_InitEndMs = (uint32_t)emscripten_get_now() + 28;
     s_InitDone = 1;
 }
 
 EMSCRIPTEN_KEEPALIVE
 void doom_tick()
 {
-    if (s_FirstTick)
-    {
-        /* Capture real time as base, so controlled time starts from
-         * where init left off (no gap = no demo trigger). */
-        s_TimeBase = emscripten_get_now();
-        s_FirstTick = 0;
-    }
     s_TickCount++;
     doomgeneric_Tick();
 }
