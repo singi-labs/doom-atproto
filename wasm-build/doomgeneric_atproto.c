@@ -57,15 +57,9 @@ void DG_SleepMs(uint32_t ms)
 
 uint32_t DG_GetTicksMs()
 {
-    if (!s_InitDone)
-    {
-        /* During init, use real time so Doom's startup loop can progress */
-        return (uint32_t)emscripten_get_now();
-    }
-    /* After init: advance time by 28ms per tick from the init baseline.
-     * Use the tick count relative to when init ended, ensuring each
-     * doom_tick() call always advances time enough for TryRunTics. */
-    return s_InitEndMs + (s_TickCount * 28);
+    /* Always use real wall-clock time. The game engine needs to see
+     * time pass during TryRunTics for the main loop to work. */
+    return (uint32_t)emscripten_get_now();
 }
 
 int DG_GetKey(int* pressed, unsigned char* doomKey)

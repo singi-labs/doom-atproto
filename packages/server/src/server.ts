@@ -129,7 +129,17 @@ async function main() {
     })
   }
 
+  let totalTickBatches = 0
+
   async function tickBatchAndWrite() {
+    totalTickBatches++
+
+    // On first batch, send Enter to skip title screen -> menu
+    if (totalTickBatches === 1) {
+      worker.postMessage({ type: 'key', pressed: true, key: 13 }) // Enter down
+      worker.postMessage({ type: 'key', pressed: false, key: 13 }) // Enter up
+    }
+
     // Apply queued key events before ticking (avoids sending to worker mid-tick)
     flushKeyEvents()
 
@@ -282,6 +292,7 @@ async function main() {
 
     currentPlayerDid = playerDid
     frameSeq = 0
+    totalTickBatches = 0
     rateLimited = false
     previousKeyState = 0
     lastFramePng = null
