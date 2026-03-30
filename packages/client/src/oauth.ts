@@ -6,6 +6,8 @@
  * - Minimal scopes (just write input records)
  * - Single keypair generated at startup
  */
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { JoseKey, NodeOAuthClient } from '@atproto/oauth-client-node'
 import type { NodeSavedSession, NodeSavedSessionStore, NodeSavedState, NodeSavedStateStore } from '@atproto/oauth-client-node'
 
@@ -51,9 +53,21 @@ export interface OAuthConfig {
 }
 
 export async function createOAuthClient(config: OAuthConfig): Promise<NodeOAuthClient> {
-  // Generate a fresh keypair on startup (sessions don't survive restart -- fine for a game)
-  // The key needs a 'kid' for private_key_jwt authentication
-  const key = await JoseKey.generate(['ES256'], crypto.randomUUID())
+  // Persist keypair to disk so it survives restarts (prevents JWKS cache mismatch)
+  const keyDir = join(process.cwd(), '.oauth-keys')
+  const keyPath = join(keyDir, 'private-key.json')
+  let key: JoseKey
+
+  if (existsSync(keyPath)) {
+    const jwk = JSON.parse(readFileSync(keyPath, 'utf-8'))
+    key = await JoseKey.fromJWK(jwk)
+    console.log('Loaded existing OAuth keypair')
+  } else {
+    key = await JoseKey.generate(['ES256'], crypto.randomUUID())
+    mkdirSync(keyDir, { recursive: true })
+    writeFileSync(keyPath, JSON.stringify(key.privateJwk), { mode: 0o600 })
+    console.log('Generated new OAuth keypair')
+  }
 
   return new NodeOAuthClient({
     clientMetadata: {
