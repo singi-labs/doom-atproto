@@ -3,14 +3,6 @@
  *
  * Headless WASM build: no SDL, no display, no audio.
  * Exposes tick-by-tick control to JavaScript via exported functions.
- *
- * Exported API:
- *   doom_init(argc, argv)     - Initialize the engine (loads WAD from Emscripten FS)
- *   doom_tick()               - Run one game tick
- *   doom_add_key(pressed,key) - Queue a key event before calling doom_tick()
- *   doom_get_screen()         - Returns pointer to RGBA framebuffer
- *   doom_get_screen_width()   - Returns screen width
- *   doom_get_screen_height()  - Returns screen height
  */
 
 #include "doomgeneric.h"
@@ -32,8 +24,19 @@ static unsigned int s_KeyQueueReadIndex = 0;
 
 /* Tick counter (incremented each doom_tick call) */
 static uint32_t s_TickCount = 0;
-
 static int s_InitDone = 0;
+
+/*
+ * Time management:
+ * - During init: use real wall-clock time so Doom's startup loop works
+ * - After init: use controlled time that only advances when doom_tick() is called
+ *   This prevents the demo loop from triggering during idle periods.
+ *
+ * On the first doom_tick() after init, we capture the real time as the base
+ * and count ticks from there, so there's no time gap.
+ */
+static double s_TimeBase = 0;  /* real time at first tick after init */
+static int s_FirstTick = 1;    /* flag: is this the first tick after init? */
 
 /* ----- DG callbacks ----- */
 
@@ -49,18 +52,20 @@ void DG_DrawFrame()
 
 void DG_SleepMs(uint32_t ms)
 {
-    /* No-op in all cases. During init, DG_GetTicksMs uses real time
-     * so the engine sees time passing without needing to sleep.
-     * After init, we control tick timing externally. */
+    /* No-op */
     (void)ms;
 }
 
 uint32_t DG_GetTicksMs()
 {
-    /* Always use real wall-clock time.
-     * For the AT Protocol federated version we may need simulated time,
-     * but for local testing real time keeps the engine happy. */
-    return (uint32_t)emscripten_get_now();
+    if (!s_InitDone)
+    {
+        /* During init, use real time so Doom's startup loop can progress */
+        return (uint32_t)emscripten_get_now();
+    }
+    /* After init: controlled time based on tick count.
+     * Each tick = 28ms (Doom runs at ~35 ticks/sec). */
+    return (uint32_t)(s_TimeBase + s_TickCount * 28);
 }
 
 int DG_GetKey(int* pressed, unsigned char* doomKey)
@@ -92,13 +97,19 @@ EMSCRIPTEN_KEEPALIVE
 void doom_init(int argc, char** argv)
 {
     doomgeneric_Create(argc, argv);
-
     s_InitDone = 1;
 }
 
 EMSCRIPTEN_KEEPALIVE
 void doom_tick()
 {
+    if (s_FirstTick)
+    {
+        /* Capture real time as base, so controlled time starts from
+         * where init left off (no gap = no demo trigger). */
+        s_TimeBase = emscripten_get_now();
+        s_FirstTick = 0;
+    }
     s_TickCount++;
     doomgeneric_Tick();
 }
@@ -136,8 +147,6 @@ uint32_t doom_get_tick_count()
     return s_TickCount;
 }
 
-/* main() is required by Emscripten but we don't use it.
- * Initialization happens when JS calls doom_init(). */
 int main(int argc, char** argv)
 {
     (void)argc;
