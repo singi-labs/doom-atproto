@@ -139,9 +139,11 @@ async function main() {
 
     if (!latestPng) return
 
-    // Skip unchanged frames
     const pngBuf = Buffer.from(latestPng)
-    if (lastFramePng && pngBuf.length === lastFramePng.length && pngBuf.equals(lastFramePng)) {
+    // Skip unchanged frames, but write at least every 10th batch
+    // so the client knows we're alive (title screen is static)
+    const unchanged = lastFramePng && pngBuf.length === lastFramePng.length && pngBuf.equals(lastFramePng)
+    if (unchanged && frameSeq % 10 !== 0) {
       return
     }
 

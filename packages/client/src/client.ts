@@ -296,9 +296,12 @@ async function main() {
     let inputSeq = 0
     let inputPaused = false
 
+    let inputWriteCount = 0
+
     async function flushInputs() {
       if (pendingKeys.length === 0) return
       const keys = pendingKeys.slice()
+      const nonZero = keys.filter(k => k !== 0)
       pendingKeys = []
       const seq = inputSeq
       inputSeq += keys.length
@@ -315,6 +318,10 @@ async function main() {
             createdAt: new Date().toISOString(),
           },
         })
+        inputWriteCount++
+        if (inputWriteCount <= 3 || nonZero.length > 0) {
+          console.log(`Input write #${inputWriteCount}: ${keys.length} keys (${nonZero.length} non-zero)`)
+        }
       } catch (err) {
         console.error('Input write failed:', err instanceof Error ? err.message : err)
       }
