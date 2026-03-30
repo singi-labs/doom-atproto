@@ -122,17 +122,6 @@ async function main() {
 
           playerSessions.set(sessionId, { did, handle, agent })
 
-          // Notify game server
-          try {
-            await fetch(`http://localhost:8666/api/start`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ playerDid: did }),
-            })
-          } catch (err) {
-            console.error('Failed to notify server:', err)
-          }
-
           console.log(`Player authenticated: ${handle} (${did})`)
 
           res.writeHead(302, {
@@ -286,6 +275,13 @@ async function main() {
     console.log(`Browser connected: ${session.handle}`)
     clients.set(ws, { did: session.did })
     startFramePolling()
+
+    // Start the game server now that browser is ready to receive frames
+    fetch('http://localhost:8666/api/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerDid: session.did }),
+    }).catch((err) => console.error('Failed to start server session:', err))
 
     // Send the latest cached frame immediately so the browser doesn't wait
     if (latestFramePng && latestFrameMeta) {
